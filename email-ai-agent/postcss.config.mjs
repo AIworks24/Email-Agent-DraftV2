@@ -1,7 +1,8 @@
 const config = {
-  plugins: ["@tailwindcss/postcss"],
-  tailwindcss: {},
+  plugins: {
+    tailwindcss: {},
     autoprefixer: {},
-  }
+  },
+}
 
 export default config;
