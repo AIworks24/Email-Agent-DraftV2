@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { GraphService } from '@/lib/microsoftGraph';
 import { AIEmailProcessor, EmailContext } from '@/lib/aiProcessor';
+import { extractEmailAddress, sanitizeEmailContent, estimateTokens } from '@/lib/utils';
 
 // Initialize Supabase with service role key for server-side operations
 const supabase = createClient(
@@ -84,95 +85,94 @@ async function processEmailNotification(notification: any) {
       return;
     }
     
-    // Find the email account using clientState (which should be the email address)
-    const { data: emailAccount, error: accountError } = await supabase
-      .from('email_accounts')
+    // Find the email account using client state
+    const { data: subscription, error: subError } = await supabase
+      .from('webhook_subscriptions')
       .select(`
         *,
-        clients(*),
-        email_templates(*)
+        email_accounts (
+          *,
+          clients (*)
+        )
       `)
-      .eq('email_address', clientState)
+      .eq('client_state', clientState)
       .eq('is_active', true)
       .single();
-      
-    if (accountError || !emailAccount) {
-      console.error('Email account not found:', clientState, accountError);
+
+    if (subError || !subscription) {
+      console.error('No active subscription found for client state:', clientState);
       return;
     }
-    
-    console.log('Found email account for:', emailAccount.email_address);
-    
-    // Initialize Graph Service with stored access token
-    const graphService = new GraphService(emailAccount.access_token);
-    
-    // Extract message ID from resource path
-    // Resource format: /me/messages/{messageId}
+
+    const emailAccount = subscription.email_accounts;
+    if (!emailAccount || !emailAccount.is_active) {
+      console.error('Email account not found or inactive');
+      return;
+    }
+
+    // Extract message ID from resource
     const messageId = resource.split('/').pop();
-    
     if (!messageId) {
       console.error('Could not extract message ID from resource:', resource);
       return;
     }
-    
-    // Get the full email details
+
+    // Check if we've already processed this email
+    const { data: existingLog } = await supabase
+      .from('email_logs')
+      .select('id')
+      .eq('message_id', messageId)
+      .single();
+
+    if (existingLog) {
+      console.log('Email already processed:', messageId);
+      return;
+    }
+
+    // Get email details using Microsoft Graph
+    const graphService = new GraphService(emailAccount.access_token);
     const emailDetails = await graphService.getEmailDetails(messageId);
-    
+
     if (!emailDetails) {
-      console.error('Could not retrieve email details for message:', messageId);
+      console.error('Failed to fetch email details for:', messageId);
       return;
     }
-    
-    console.log('Retrieved email:', {
-      subject: emailDetails.subject,
-      from: emailDetails.from?.emailAddress?.address,
-      id: emailDetails.id
-    });
-    
-    // Skip if this is an email we sent (to avoid loops)
-    if (emailDetails.from?.emailAddress?.address === emailAccount.email_address) {
-      console.log('Skipping self-sent email');
-      return;
-    }
-    
-    // Log the email in our database
+
+    // Log the email in database
     const { data: emailLog, error: logError } = await supabase
       .from('email_logs')
       .insert({
         email_account_id: emailAccount.id,
-        subject: emailDetails.subject || 'No Subject',
-        sender_email: emailDetails.from?.emailAddress?.address || 'Unknown',
-        original_body: emailDetails.body?.content || '',
-        status: 'pending'
+        message_id: messageId,
+        subject: emailDetails.subject || '',
+        from_email: extractEmailAddress(emailDetails.from),
+        body: sanitizeEmailContent(emailDetails.body?.content || ''),
+        status: 'received'
       })
       .select()
       .single();
-      
-    if (logError || !emailLog) {
+
+    if (logError) {
       console.error('Failed to log email:', logError);
       return;
     }
-    
-    // Generate AI response
-    await generateAndCreateDraftReply(
-      graphService,
-      emailDetails,
-      emailAccount,
-      emailLog.id
-    );
-    
+
+    // Generate AI response and create draft
+    await generateAndCreateDraftReply(graphService, emailDetails, emailAccount, emailLog.id);
+
   } catch (error) {
     console.error('Error processing email notification:', error);
     
-    // Log the error to database if possible
+    // Log the error
     try {
       await supabase
         .from('email_logs')
         .insert({
-          email_account_id: 'error',
+          email_account_id: 'unknown',
+          message_id: 'unknown',
           subject: 'Processing Error',
-          sender_email: 'system',
-          original_body: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          from_email: 'system',
+          body: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
           status: 'error'
         });
     } catch (logError) {
@@ -191,7 +191,14 @@ async function generateAndCreateDraftReply(
     console.log('Generating AI response for email:', emailDetails.subject);
     
     // Get client template or use defaults
-    const template = emailAccount.email_templates?.[0] || {
+    const { data: template } = await supabase
+      .from('email_templates')
+      .select('*')
+      .eq('client_id', emailAccount.client_id)
+      .eq('is_default', true)
+      .single();
+
+    const clientTemplate = template || {
       writing_style: 'professional',
       tone: 'friendly',
       signature: emailAccount.clients?.name || 'Best regards',
@@ -211,13 +218,13 @@ async function generateAndCreateDraftReply(
     // Prepare context for AI
     const context: EmailContext = {
       subject: emailDetails.subject || '',
-      fromEmail: emailDetails.from?.emailAddress?.address || '',
-      body: emailDetails.body?.content || '',
+      fromEmail: extractEmailAddress(emailDetails.from),
+      body: sanitizeEmailContent(emailDetails.body?.content || ''),
       clientTemplate: {
-        writingStyle: template.writing_style,
-        tone: template.tone,
-        signature: template.signature,
-        sampleEmails: template.sample_emails || []
+        writingStyle: clientTemplate.writing_style,
+        tone: clientTemplate.tone,
+        signature: clientTemplate.signature,
+        sampleEmails: clientTemplate.sample_emails || []
       },
       calendarAvailability: calendarAvailability?.value || null
     };
@@ -243,7 +250,7 @@ async function generateAndCreateDraftReply(
       .update({
         ai_response: aiResponse,
         status: 'draft_created',
-        tokens_used: estimateTokens(aiResponse) // Rough estimate
+        tokens_used: estimateTokens(aiResponse)
       })
       .eq('id', emailLogId);
       
@@ -265,21 +272,4 @@ async function generateAndCreateDraftReply(
       })
       .eq('id', emailLogId);
   }
-}
-
-// Simple token estimation (roughly 4 characters per token)
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
-// Handle OPTIONS request for CORS
-export async function OPTIONS(request: NextRequest) {
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
-  });
 }

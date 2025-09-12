@@ -105,68 +105,27 @@ export class GraphService {
   }
 
   /**
-   * Get calendar events for availability checking
-   */
-  async getCalendarEvents(startTime: string, endTime: string) {
-    try {
-      return await this.client
-        .api('/me/calendar/events')
-        .filter(`start/dateTime ge '${startTime}' and end/dateTime le '${endTime}'`)
-        .select('subject,start,end,showAs,location')
-        .orderby('start/dateTime')
-        .get();
-    } catch (error) {
-      console.error('Error fetching calendar events:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get user's free/busy information
-   */
-  async getFreeBusy(startTime: string, endTime: string) {
-    try {
-      const requestBody = {
-        schedules: ['me'],
-        startTime: {
-          dateTime: startTime,
-          timeZone: 'UTC'
-        },
-        endTime: {
-          dateTime: endTime,
-          timeZone: 'UTC'
-        },
-        availabilityViewInterval: 60 // 60-minute intervals
-      };
-
-      return await this.client
-        .api('/me/calendar/getSchedule')
-        .post(requestBody);
-    } catch (error) {
-      console.error('Error fetching free/busy information:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Create a draft reply to an email
    */
   async createDraftReply(messageId: string, replyContent: string, replyAll: boolean = false) {
     try {
-      const endpoint = replyAll ? `/me/messages/${messageId}/replyAll` : `/me/messages/${messageId}/reply`;
+      const endpoint = replyAll 
+        ? `/me/messages/${messageId}/createReplyAll` 
+        : `/me/messages/${messageId}/createReply`;
       
-      const replyData = {
-        message: {
+      const draft = await this.client
+        .api(endpoint)
+        .post({});
+
+      // Update the draft with our content
+      return await this.client
+        .api(`/me/messages/${draft.id}`)
+        .patch({
           body: {
             contentType: 'HTML',
             content: replyContent
           }
-        }
-      };
-
-      return await this.client
-        .api(endpoint)
-        .post(replyData);
+        });
     } catch (error) {
       console.error('Error creating draft reply:', error);
       throw error;
@@ -178,7 +137,9 @@ export class GraphService {
    */
   async sendReply(messageId: string, replyContent: string, replyAll: boolean = false) {
     try {
-      const endpoint = replyAll ? `/me/messages/${messageId}/replyAll` : `/me/messages/${messageId}/reply`;
+      const endpoint = replyAll 
+        ? `/me/messages/${messageId}/replyAll` 
+        : `/me/messages/${messageId}/reply`;
       
       const replyData = {
         message: {
@@ -343,6 +304,23 @@ export class GraphService {
         .get();
     } catch (error) {
       console.error('Error fetching conversation:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get calendar events
+   */
+  async getCalendarEvents(startTime: string, endTime: string) {
+    try {
+      return await this.client
+        .api('/me/events')
+        .filter(`start/dateTime ge '${startTime}' and end/dateTime le '${endTime}'`)
+        .select('subject,start,end,location,attendees')
+        .orderby('start/dateTime')
+        .get();
+    } catch (error) {
+      console.error('Error fetching calendar events:', error);
       throw error;
     }
   }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PublicClientApplication, ConfidentialClientApplication } from '@azure/msal-node';
+import { ConfidentialClientApplication } from '@azure/msal-node';
 import { createClient } from '@supabase/supabase-js';
+import { GraphService } from '@/lib/microsoftGraph';
+import { generateClientState } from '@/lib/utils';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -160,23 +162,21 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
       await setupWebhookSubscription(response.accessToken, userInfo.mail || userInfo.userPrincipalName);
     } catch (webhookError) {
       console.error('Webhook setup error:', webhookError);
-      // Don't fail the auth process if webhook setup fails
+      // Don't fail the whole process if webhook setup fails
     }
 
     // Redirect to success page
-    const successUrl = `${process.env.WEBHOOK_BASE_URL}/auth/success?email=${encodeURIComponent(userInfo.mail || userInfo.userPrincipalName)}&returnUrl=${encodeURIComponent(returnUrl)}`;
-    return NextResponse.redirect(successUrl);
+    return NextResponse.redirect(`${process.env.WEBHOOK_BASE_URL}${returnUrl}?success=true`);
 
   } catch (error) {
-    console.error('Token exchange error:', error);
-    return NextResponse.redirect(`${process.env.WEBHOOK_BASE_URL}/auth/error?error=${encodeURIComponent('Authentication failed')}`);
+    console.error('Callback processing error:', error);
+    return NextResponse.redirect(`${process.env.WEBHOOK_BASE_URL}/auth/error?error=${encodeURIComponent('Failed to process authentication')}`);
   }
 }
 
 async function handleSignOut(request: NextRequest, searchParams: URLSearchParams) {
   const clientId = searchParams.get('clientId');
-  const returnUrl = searchParams.get('returnUrl') || '/';
-
+  
   if (clientId) {
     // Deactivate email accounts for this client
     await supabase
@@ -185,97 +185,34 @@ async function handleSignOut(request: NextRequest, searchParams: URLSearchParams
       .eq('client_id', clientId);
   }
 
-  // Redirect to sign out URL
-  const signOutUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(process.env.WEBHOOK_BASE_URL + returnUrl)}`;
-  return NextResponse.redirect(signOutUrl);
+  return NextResponse.json({ success: true });
 }
 
 async function setupWebhookSubscription(accessToken: string, emailAddress: string) {
-  const subscriptionData = {
-    changeType: 'created',
-    notificationUrl: `${process.env.WEBHOOK_BASE_URL}/api/webhooks/email-received`,
-    resource: '/me/messages',
-    expirationDateTime: new Date(Date.now() + 3600000).toISOString(), // 1 hour
-    clientState: emailAddress // Use email as client state for identification
-  };
-
-  const response = await fetch('https://graph.microsoft.com/v1.0/subscriptions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(subscriptionData)
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Webhook subscription failed: ${response.status} - ${error}`);
-  }
-
-  const subscription = await response.json();
-  console.log('Webhook subscription created:', subscription.id);
-
-  // Store subscription ID for later management
-  await supabase
-    .from('email_accounts')
-    .update({
-      subscription_id: subscription.id,
-      subscription_expires: subscription.expirationDateTime
-    })
-    .eq('email_address', emailAddress);
-
-  return subscription;
-}
-
-// Handle token refresh
-export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { refreshToken, clientId } = body;
+    const graphService = new GraphService(accessToken);
+    const clientState = generateClientState(emailAddress);
+    
+    const subscription = await graphService.subscribeToEmails(
+      `${process.env.WEBHOOK_BASE_URL}/api/webhooks/email-received`,
+      clientState
+    );
 
-    if (!refreshToken) {
-      return NextResponse.json({ error: 'Refresh token required' }, { status: 400 });
-    }
+    // Store subscription info in database
+    await supabase
+      .from('webhook_subscriptions')
+      .insert({
+        email_account_id: emailAddress, // This should be the actual account ID
+        subscription_id: subscription.id,
+        webhook_url: `${process.env.WEBHOOK_BASE_URL}/api/webhooks/email-received`,
+        client_state: clientState,
+        expires_at: subscription.expirationDateTime,
+        is_active: true
+      });
 
-    const refreshRequest = {
-      refreshToken: refreshToken,
-      scopes: [
-        'https://graph.microsoft.com/Mail.Read',
-        'https://graph.microsoft.com/Mail.ReadWrite',
-        'https://graph.microsoft.com/Mail.Send',
-        'https://graph.microsoft.com/Calendars.Read'
-      ]
-    };
-
-    const response = await cca.acquireTokenByRefreshToken(refreshRequest);
-
-    if (!response) {
-      throw new Error('Failed to refresh token');
-    }
-
-    // Update stored tokens
-    if (clientId) {
-      await supabase
-        .from('email_accounts')
-        .update({
-          access_token: response.accessToken,
-          refresh_token: response.refreshToken
-        })
-        .eq('client_id', clientId);
-    }
-
-    return NextResponse.json({
-      accessToken: response.accessToken,
-      refreshToken: response.refreshToken,
-      expiresOn: response.expiresOn
-    });
-
+    console.log('Webhook subscription created:', subscription.id);
   } catch (error) {
-    console.error('Token refresh error:', error);
-    return NextResponse.json({ 
-      error: 'Token refresh failed',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
+    console.error('Failed to setup webhook subscription:', error);
+    throw error;
   }
 }
