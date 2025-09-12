@@ -1,158 +1,169 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 
-export default function AIEmailAgentApp() {
+export default function HomePage() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [systemStatus, setSystemStatus] = useState('Checking...');
-
-  useEffect(() => {
-    checkSystemHealth();
-  }, []);
-
-  const checkSystemHealth = async () => {
-    try {
-      const response = await fetch('/api/health');
-      if (response.ok) {
-        setSystemStatus('Online');
-      } else {
-        setSystemStatus('Error');
-      }
-    } catch (error) {
-      setSystemStatus('Error');
-    }
-  };
 
   const buttonStyle = {
-    padding: '8px 16px',
-    margin: '0 4px',
+    padding: '12px 24px',
     border: 'none',
-    borderRadius: '4px',
+    borderRadius: '6px',
     cursor: 'pointer',
-    fontSize: '14px'
-  };
-
-  const activeButtonStyle = {
-    ...buttonStyle,
-    backgroundColor: '#3b82f6',
-    color: 'white'
-  };
-
-  const inactiveButtonStyle = {
-    ...buttonStyle,
+    fontSize: '14px',
+    fontWeight: '500',
+    transition: 'all 0.2s ease',
     backgroundColor: '#f3f4f6',
-    color: '#374151'
-  };
-
-  const containerStyle = {
-    minHeight: '100vh',
-    backgroundColor: '#f9fafb',
-    fontFamily: 'Arial, sans-serif'
-  };
-
-  const headerStyle = {
-    backgroundColor: 'white',
-    borderBottom: '1px solid #e5e7eb',
-    padding: '16px'
-  };
-
-  const contentStyle = {
-    padding: '24px',
-    maxWidth: '1200px',
-    margin: '0 auto'
+    color: '#374151',
+    marginRight: '8px',
+    marginBottom: '8px'
   };
 
   const cardStyle = {
     backgroundColor: 'white',
-    border: '1px solid #e5e7eb',
     borderRadius: '8px',
     padding: '24px',
-    marginBottom: '24px'
-  };
-
-  const statusStyle = {
-    display: 'inline-block',
-    padding: '4px 12px',
-    borderRadius: '12px',
-    fontSize: '12px',
-    fontWeight: 'bold',
-    backgroundColor: systemStatus === 'Online' ? '#dcfce7' : '#fee2e2',
-    color: systemStatus === 'Online' ? '#166534' : '#991b1b'
+    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+    border: '1px solid #e5e7eb'
   };
 
   return (
-    <div style={containerStyle}>
-      {/* Header */}
-      <div style={headerStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
-            <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 'bold' }}>AI Email Agent</h1>
-            
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                onClick={() => setActiveTab('dashboard')}
-                style={activeTab === 'dashboard' ? activeButtonStyle : inactiveButtonStyle}
-              >
-                Dashboard
-              </button>
-              <button
-                onClick={() => setActiveTab('setup')}
-                style={activeTab === 'setup' ? activeButtonStyle : inactiveButtonStyle}
-              >
-                Setup
-              </button>
-              <button
-                onClick={() => setActiveTab('clients')}
-                style={activeTab === 'clients' ? activeButtonStyle : inactiveButtonStyle}
-              >
-                Clients
-              </button>
+    <div style={{
+      minHeight: '100vh',
+      backgroundColor: '#f9fafb',
+      fontFamily: 'system-ui, -apple-system, sans-serif'
+    }}>
+      <div style={{
+        maxWidth: '1200px',
+        margin: '0 auto',
+        padding: '24px'
+      }}>
+        {/* Header */}
+        <div style={cardStyle}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '24px'
+          }}>
+            <div>
+              <h1 style={{
+                fontSize: '28px',
+                fontWeight: 'bold',
+                margin: '0 0 8px 0',
+                color: '#111827'
+              }}>
+                AI Email Agent
+              </h1>
+              <p style={{
+                color: '#6b7280',
+                margin: 0,
+                fontSize: '16px'
+              }}>
+                Intelligent email automation powered by Claude AI
+              </p>
+            </div>
+            <div style={{
+              padding: '8px 16px',
+              backgroundColor: '#10b981',
+              color: 'white',
+              borderRadius: '6px',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}>
+              Online
             </div>
           </div>
-          
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              backgroundColor: systemStatus === 'Online' ? '#22c55e' : '#ef4444'
-            }}></div>
-            <span style={{ fontSize: '14px', color: '#6b7280' }}>
-              System: {systemStatus}
-            </span>
+
+          {/* Navigation */}
+          <div style={{ marginBottom: '24px' }}>
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              style={{
+                ...buttonStyle,
+                backgroundColor: activeTab === 'dashboard' ? '#3b82f6' : '#f3f4f6',
+                color: activeTab === 'dashboard' ? 'white' : '#374151'
+              }}
+            >
+              Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab('setup')}
+              style={{
+                ...buttonStyle,
+                backgroundColor: activeTab === 'setup' ? '#3b82f6' : '#f3f4f6',
+                color: activeTab === 'setup' ? 'white' : '#374151'
+              }}
+            >
+              Setup
+            </button>
+            <button
+              onClick={() => setActiveTab('clients')}
+              style={{
+                ...buttonStyle,
+                backgroundColor: activeTab === 'clients' ? '#3b82f6' : '#f3f4f6',
+                color: activeTab === 'clients' ? 'white' : '#374151'
+              }}
+            >
+              Clients
+            </button>
           </div>
         </div>
-      </div>
 
-      {/* Main Content */}
-      <div style={contentStyle}>
+        {/* Content */}
         {activeTab === 'dashboard' && (
-          <div>
+          <div style={{ marginTop: '24px' }}>
             <div style={cardStyle}>
-              <h2 style={{ margin: '0 0 16px 0', fontSize: '20px' }}>Email Processing Dashboard</h2>
-              <p style={{ margin: '0 0 16px 0', color: '#6b7280' }}>
-                Monitor and manage AI-powered email responses
-              </p>
-              <div style={statusStyle}>System Status: {systemStatus}</div>
-            </div>
-            
-            <div style={cardStyle}>
-              <h3 style={{ margin: '0 0 16px 0' }}>Quick Actions</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                <button
-                  onClick={() => window.open('/api/health', '_blank')}
-                  style={{
-                    ...buttonStyle,
-                    backgroundColor: '#10b981',
-                    color: 'white',
-                    padding: '16px',
-                    textAlign: 'left'
-                  }}
-                >
-                  <div style={{ fontWeight: 'bold' }}>Test API Health</div>
-                  <div style={{ fontSize: '12px', opacity: 0.8 }}>Check system endpoints</div>
-                </button>
+              <h2 style={{ margin: '0 0 16px 0' }}>System Status</h2>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: '16px'
+              }}>
+                <div style={{
+                  padding: '16px',
+                  backgroundColor: '#f0f9ff',
+                  borderRadius: '6px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#0369a1' }}>
+                    Ready
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                    System Status
+                  </div>
+                </div>
                 
+                <div style={{
+                  padding: '16px',
+                  backgroundColor: '#f0fdf4',
+                  borderRadius: '6px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#059669' }}>
+                    0
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                    Active Clients
+                  </div>
+                </div>
+
+                <div style={{
+                  padding: '16px',
+                  backgroundColor: '#fefce8',
+                  borderRadius: '6px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ca8a04' }}>
+                    0
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                    Emails Processed
+                  </div>
+                </div>
+              </div>
+              
+              <div style={{ marginTop: '24px' }}>
                 <button
                   onClick={() => setActiveTab('setup')}
                   style={{
@@ -172,7 +183,7 @@ export default function AIEmailAgentApp() {
         )}
 
         {activeTab === 'setup' && (
-          <div>
+          <div style={{ marginTop: '24px' }}>
             <div style={cardStyle}>
               <h2 style={{ margin: '0 0 16px 0' }}>Environment Configuration</h2>
               <p style={{ margin: '0 0 24px 0', color: '#6b7280' }}>
@@ -212,12 +223,28 @@ WEBHOOK_BASE_URL=https://your-vercel-app.vercel.app`}</pre>
                 <li style={{ marginBottom: '8px' }}>Configure Azure App Registration</li>
                 <li style={{ marginBottom: '8px' }}>Redeploy your application</li>
               </ol>
+
+              <div style={{ marginTop: '24px', padding: '16px', backgroundColor: '#f0f9ff', borderRadius: '6px' }}>
+                <h4 style={{ margin: '0 0 8px 0', color: '#0369a1' }}>API Test Endpoints</h4>
+                <p style={{ margin: '0', fontSize: '14px', color: '#374151' }}>
+                  Test your deployment: 
+                  <code style={{ 
+                    backgroundColor: '#e5e7eb', 
+                    padding: '2px 6px', 
+                    borderRadius: '3px',
+                    marginLeft: '8px',
+                    fontSize: '12px'
+                  }}>
+                    /api/webhooks/email-received
+                  </code>
+                </p>
+              </div>
             </div>
           </div>
         )}
 
         {activeTab === 'clients' && (
-          <div>
+          <div style={{ marginTop: '24px' }}>
             <div style={cardStyle}>
               <h2 style={{ margin: '0 0 16px 0' }}>Client Management</h2>
               <p style={{ margin: '0 0 24px 0', color: '#6b7280' }}>
