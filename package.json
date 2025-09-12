@@ -1,11 +1,30 @@
 {
+  "name": "email-agent-draftv2",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
   "dependencies": {
-    "@azure/msal-node": "^3.7.3",
-    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "next": "15.5.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "@supabase/supabase-js": "^2.57.4",
-    "@types/node": "^24.3.1",
-    "@types/react": "^19.1.12",
-    "react": "^19.1.1",
-    "typescript": "^5.9.2"
+    "@azure/msal-node": "^2.0.0",
+    "@microsoft/microsoft-graph-client": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "typescript": "^5.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "15.5.3",
+    "tailwindcss": "^3.4.0",
+    "autoprefixer": "^10.0.0",
+    "postcss": "^8.4.0"
   }
 }
