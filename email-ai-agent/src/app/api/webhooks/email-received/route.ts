@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+
 
 // Note: GraphService and AIEmailProcessor imports will need to be added later
 // import { GraphService } from '../../../../lib/microsoftGraph';
 // import { AIEmailProcessor } from '../../../../lib/aiProcessor';
+// import { createClient } from '@supabase/supabase-js';
 
 export async function POST(request: NextRequest) {
   try {
