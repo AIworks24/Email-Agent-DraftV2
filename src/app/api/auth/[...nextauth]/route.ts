@@ -1,24 +1,9 @@
-// Replace your ENTIRE src/app/api/auth/[...nextauth]/route.ts with this corrected version
-// This uses the SAME Supabase pattern as your working API routes:
+// Replace your ENTIRE src/app/api/auth/[...nextauth]/route.ts with this:
+// This initializes Supabase INSIDE the functions, not at module level
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-const msalConfig = {
-  auth: {
-    clientId: process.env.MICROSOFT_CLIENT_ID!,
-    clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
-    authority: 'https://login.microsoftonline.com/common'
-  }
-};
-
-const cca = new ConfidentialClientApplication(msalConfig);
 
 export async function GET(
   request: NextRequest,
@@ -48,6 +33,16 @@ export async function GET(
 async function handleSignIn(request: NextRequest, searchParams: URLSearchParams) {
   const clientId = searchParams.get('clientId');
   const returnUrl = searchParams.get('returnUrl') || '/';
+
+  // Initialize MSAL inside the function
+  const msalConfig = {
+    auth: {
+      clientId: process.env.MICROSOFT_CLIENT_ID!,
+      clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
+      authority: 'https://login.microsoftonline.com/common'
+    }
+  };
+  const cca = new ConfidentialClientApplication(msalConfig);
 
   const scopes = [
     'https://graph.microsoft.com/Mail.Read',
@@ -90,6 +85,16 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
   try {
     const { clientId, returnUrl } = JSON.parse(state);
 
+    // Initialize MSAL inside the function
+    const msalConfig = {
+      auth: {
+        clientId: process.env.MICROSOFT_CLIENT_ID!,
+        clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
+        authority: 'https://login.microsoftonline.com/common'
+      }
+    };
+    const cca = new ConfidentialClientApplication(msalConfig);
+
     const tokenRequest = {
       code: code,
       scopes: [
@@ -120,6 +125,12 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
     }
 
     const userProfile = await userResponse.json();
+
+    // Initialize Supabase INSIDE the function - this is the key fix
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
     // Create or update client record
     const { data: client, error: clientError } = await supabase
