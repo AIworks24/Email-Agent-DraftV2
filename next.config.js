@@ -1,19 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    // Allow build to complete with some warnings
+    serverComponentsExternalPackages: ['@azure/msal-node']
+  },
   eslint: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has ESLint errors.
+    // Allow production builds to complete even with ESLint errors
     ignoreDuringBuilds: true,
   },
   typescript: {
-    // !! WARN !!
-    // Dangerously allow production builds to successfully complete even if
-    // your project has type errors.
-    // !! WARN !!
+    // Allow production builds to complete even with type errors
     ignoreBuildErrors: true,
-  },
-  experimental: {
-    serverComponentsExternalPackages: ['@azure/msal-node']
   }
 }
 

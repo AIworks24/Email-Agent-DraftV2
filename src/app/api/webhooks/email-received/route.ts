@@ -4,13 +4,26 @@ import { GraphService } from '@/lib/microsoftGraph';
 import { AIEmailProcessor, EmailContext } from '@/lib/aiProcessor';
 import { extractEmailAddress, sanitizeEmailContent, estimateTokens } from '@/lib/utils';
 
-// Initialize Supabase with service role key for server-side operations
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Safe environment variable access - don't throw during build
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+
+// Only create Supabase client if env vars are available
+const supabase = (supabaseUrl && supabaseServiceKey) ? createClient(
+  supabaseUrl,
+  supabaseServiceKey
+) : null;
 
 export async function POST(request: NextRequest) {
+  // Return error if not properly configured
+  if (!supabase) {
+    return NextResponse.json({ 
+      error: 'Service not configured',
+      message: 'Environment variables not set'
+    }, { status: 503 });
+  }
+
   try {
     console.log('Webhook received - processing email notifications');
     
@@ -70,6 +83,11 @@ export async function GET(request: NextRequest) {
 }
 
 async function processEmailNotification(notification: any) {
+  if (!supabase) {
+    console.error('Supabase not configured');
+    return;
+  }
+
   try {
     console.log('Processing notification:', {
       resource: notification.resource,
@@ -157,8 +175,12 @@ async function processEmailNotification(notification: any) {
       return;
     }
 
-    // Generate AI response and create draft
-    await generateAndCreateDraftReply(graphService, emailDetails, emailAccount, emailLog.id);
+    // Generate AI response and create draft (only if API key is available)
+    if (anthropicApiKey) {
+      await generateAndCreateDraftReply(graphService, emailDetails, emailAccount, emailLog.id);
+    } else {
+      console.log('Anthropic API key not configured - skipping AI response generation');
+    }
 
   } catch (error) {
     console.error('Error processing email notification:', error);
@@ -187,6 +209,11 @@ async function generateAndCreateDraftReply(
   emailAccount: any,
   emailLogId: string
 ) {
+  if (!supabase || !anthropicApiKey) {
+    console.error('Required services not configured');
+    return;
+  }
+
   try {
     console.log('Generating AI response for email:', emailDetails.subject);
     
@@ -211,7 +238,7 @@ async function generateAndCreateDraftReply(
       const startTime = new Date().toISOString();
       const endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       calendarAvailability = await graphService.getCalendarEvents(startTime, endTime);
-    } catch (calError) {
+    } catch (calError: any) {
       console.log('Calendar access not available:', calError.message);
     }
     
@@ -230,7 +257,7 @@ async function generateAndCreateDraftReply(
     };
     
     // Generate AI response
-    const aiProcessor = new AIEmailProcessor(process.env.ANTHROPIC_API_KEY!);
+    const aiProcessor = new AIEmailProcessor(anthropicApiKey);
     const aiResponse = await aiProcessor.generateResponse(context);
     
     console.log('AI response generated, length:', aiResponse.length);

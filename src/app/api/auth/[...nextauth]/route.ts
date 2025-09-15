@@ -4,26 +4,42 @@ import { createClient } from '@supabase/supabase-js';
 import { GraphService } from '@/lib/microsoftGraph';
 import { generateClientState } from '@/lib/utils';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Safe environment variable access - don't throw during build
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const microsoftClientId = process.env.MICROSOFT_CLIENT_ID;
+const microsoftClientSecret = process.env.MICROSOFT_CLIENT_SECRET;
+const microsoftTenantId = process.env.MICROSOFT_TENANT_ID;
 
-// MSAL Configuration
-const msalConfig = {
+// Only create Supabase client if env vars are available
+const supabase = (supabaseUrl && supabaseServiceKey) ? createClient(
+  supabaseUrl,
+  supabaseServiceKey
+) : null;
+
+// MSAL Configuration - only if env vars are available
+const msalConfig = (microsoftClientId && microsoftClientSecret) ? {
   auth: {
-    clientId: process.env.MICROSOFT_CLIENT_ID!,
-    clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
-    authority: `https://login.microsoftonline.com/${process.env.MICROSOFT_TENANT_ID || 'common'}`
+    clientId: microsoftClientId,
+    clientSecret: microsoftClientSecret,
+    authority: `https://login.microsoftonline.com/${microsoftTenantId || 'common'}`
   }
-};
+} : null;
 
-const cca = new ConfidentialClientApplication(msalConfig);
+const cca = msalConfig ? new ConfidentialClientApplication(msalConfig) : null;
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { nextauth: string[] } }
 ) {
+  // Return error if not properly configured
+  if (!supabase || !cca) {
+    return NextResponse.json({ 
+      error: 'Service not configured',
+      message: 'Environment variables not set'
+    }, { status: 503 });
+  }
+
   const [action] = params.nextauth;
   const { searchParams } = new URL(request.url);
 
@@ -48,6 +64,10 @@ export async function GET(
 }
 
 async function handleSignIn(request: NextRequest, searchParams: URLSearchParams) {
+  if (!supabase || !cca) {
+    return NextResponse.json({ error: 'Service not configured' }, { status: 503 });
+  }
+
   const clientId = searchParams.get('clientId');
   const returnUrl = searchParams.get('returnUrl') || '/dashboard';
 
@@ -90,6 +110,10 @@ async function handleSignIn(request: NextRequest, searchParams: URLSearchParams)
 }
 
 async function handleCallback(request: NextRequest, searchParams: URLSearchParams) {
+  if (!supabase || !cca) {
+    return NextResponse.json({ error: 'Service not configured' }, { status: 503 });
+  }
+
   const code = searchParams.get('code');
   const state = searchParams.get('state');
   const error = searchParams.get('error');
@@ -144,7 +168,7 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
         client_id: clientId,
         email_address: userInfo.mail || userInfo.userPrincipalName,
         access_token: response.accessToken,
-        refresh_token: response.refreshToken,
+        refresh_token: (response as any).refreshToken || null,
         is_active: true
       }, {
         onConflict: 'client_id,email_address'
@@ -175,6 +199,10 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
 }
 
 async function handleSignOut(request: NextRequest, searchParams: URLSearchParams) {
+  if (!supabase) {
+    return NextResponse.json({ error: 'Service not configured' }, { status: 503 });
+  }
+
   const clientId = searchParams.get('clientId');
   
   if (clientId) {
@@ -189,6 +217,10 @@ async function handleSignOut(request: NextRequest, searchParams: URLSearchParams
 }
 
 async function setupWebhookSubscription(accessToken: string, emailAddress: string) {
+  if (!supabase) {
+    throw new Error('Supabase not configured');
+  }
+
   try {
     const graphService = new GraphService(accessToken);
     const clientState = generateClientState(emailAddress);
