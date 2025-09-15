@@ -68,6 +68,27 @@ export default function ClientDashboard() {
     }
   };
 
+  const initiateClientRegistration = async () => {
+  try {
+    console.log('Starting Microsoft Graph OAuth flow...');
+    
+    // Generate a temporary client ID for the OAuth flow
+    const tempClientId = `temp-${Date.now()}`;
+    const returnUrl = encodeURIComponent(window.location.pathname);
+    
+    // Redirect to Microsoft Graph OAuth
+    const authUrl = `/api/auth/signin?clientId=${tempClientId}&returnUrl=${returnUrl}`;
+    console.log('Redirecting to:', authUrl);
+    
+    // This will redirect the user to Microsoft login
+    window.location.href = authUrl;
+    
+  } catch (error) {
+    console.error('Registration error:', error);
+    alert('Failed to start client registration. Please check the console for details.');
+  }
+};
+
   const buttonStyle = {
     padding: '12px 24px',
     border: 'none',
@@ -139,7 +160,9 @@ export default function ClientDashboard() {
               }}>
                 ✓ System Online
               </div>
-              <button style={{
+              <button 
+              onClick={initiateClientRegistration}
+              style={{
                 ...buttonStyle,
                 backgroundColor: '#3b82f6',
                 color: 'white'
@@ -255,7 +278,7 @@ export default function ClientDashboard() {
                     Connect your first client to start processing emails.
                   </div>
                   <button
-                    onClick={() => setActiveTab('clients')}
+                    onClick={initiateClientRegistration}
                     style={{
                       ...buttonStyle,
                       backgroundColor: '#3b82f6',
@@ -286,7 +309,9 @@ export default function ClientDashboard() {
               <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>
                 Client Management
               </h2>
-              <button style={{
+              <button 
+              onClick={initiateClientRegistration}
+              style={{
                 ...buttonStyle,
                 backgroundColor: '#3b82f6',
                 color: 'white'

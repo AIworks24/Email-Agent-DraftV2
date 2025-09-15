@@ -1,45 +1,29 @@
+// Update your src/app/api/auth/[...nextauth]/route.ts
+// Based on your existing Microsoft Graph integration
+
 import { NextRequest, NextResponse } from 'next/server';
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { createClient } from '@supabase/supabase-js';
-import { GraphService } from '@/lib/microsoftGraph';
-import { generateClientState } from '@/lib/utils';
 
-// Safe environment variable access - don't throw during build
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const microsoftClientId = process.env.MICROSOFT_CLIENT_ID;
-const microsoftClientSecret = process.env.MICROSOFT_CLIENT_SECRET;
-const microsoftTenantId = process.env.MICROSOFT_TENANT_ID;
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-// Only create Supabase client if env vars are available
-const supabase = (supabaseUrl && supabaseServiceKey) ? createClient(
-  supabaseUrl,
-  supabaseServiceKey
-) : null;
-
-// MSAL Configuration - only if env vars are available
-const msalConfig = (microsoftClientId && microsoftClientSecret) ? {
+const msalConfig = {
   auth: {
-    clientId: microsoftClientId,
-    clientSecret: microsoftClientSecret,
-    authority: `https://login.microsoftonline.com/${microsoftTenantId || 'common'}`
+    clientId: process.env.MICROSOFT_CLIENT_ID!,
+    clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
+    authority: 'https://login.microsoftonline.com/common'
   }
-} : null;
+};
 
-const cca = msalConfig ? new ConfidentialClientApplication(msalConfig) : null;
+const cca = new ConfidentialClientApplication(msalConfig);
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { nextauth: string[] } }
 ) {
-  // Return error if not properly configured
-  if (!supabase || !cca) {
-    return NextResponse.json({ 
-      error: 'Service not configured',
-      message: 'Environment variables not set'
-    }, { status: 503 });
-  }
-
   const [action] = params.nextauth;
   const { searchParams } = new URL(request.url);
 
@@ -49,8 +33,6 @@ export async function GET(
         return handleSignIn(request, searchParams);
       case 'callback':
         return handleCallback(request, searchParams);
-      case 'signout':
-        return handleSignOut(request, searchParams);
       default:
         return NextResponse.json({ error: 'Invalid auth action' }, { status: 400 });
     }
@@ -64,44 +46,29 @@ export async function GET(
 }
 
 async function handleSignIn(request: NextRequest, searchParams: URLSearchParams) {
-  if (!supabase || !cca) {
-    return NextResponse.json({ error: 'Service not configured' }, { status: 503 });
-  }
-
   const clientId = searchParams.get('clientId');
-  const returnUrl = searchParams.get('returnUrl') || '/dashboard';
+  const returnUrl = searchParams.get('returnUrl') || '/';
 
-  if (!clientId) {
-    return NextResponse.json({ error: 'Client ID required' }, { status: 400 });
-  }
-
-  // Check if client exists
-  const { data: client, error: clientError } = await supabase
-    .from('clients')
-    .select('id, email')
-    .eq('id', clientId)
-    .single();
-
-  if (clientError || !client) {
-    return NextResponse.json({ error: 'Invalid client' }, { status: 400 });
-  }
+  console.log('Starting OAuth flow for client:', clientId);
 
   const scopes = [
     'https://graph.microsoft.com/Mail.Read',
     'https://graph.microsoft.com/Mail.ReadWrite',
     'https://graph.microsoft.com/Mail.Send',
-    'https://graph.microsoft.com/Calendars.Read',
+    'https://graph.microsoft.com/User.Read',
     'offline_access'
   ];
 
   const authCodeUrlParameters = {
     scopes: scopes,
     redirectUri: `${process.env.WEBHOOK_BASE_URL}/api/auth/callback`,
-    state: JSON.stringify({ clientId, returnUrl })
+    state: JSON.stringify({ clientId, returnUrl }),
+    prompt: 'select_account' // Force account selection
   };
 
   try {
     const authUrl = await cca.getAuthCodeUrl(authCodeUrlParameters);
+    console.log('Redirecting to:', authUrl);
     return NextResponse.redirect(authUrl);
   } catch (error) {
     console.error('Error generating auth URL:', error);
@@ -110,17 +77,13 @@ async function handleSignIn(request: NextRequest, searchParams: URLSearchParams)
 }
 
 async function handleCallback(request: NextRequest, searchParams: URLSearchParams) {
-  if (!supabase || !cca) {
-    return NextResponse.json({ error: 'Service not configured' }, { status: 503 });
-  }
-
   const code = searchParams.get('code');
   const state = searchParams.get('state');
   const error = searchParams.get('error');
 
   if (error) {
     console.error('OAuth error:', error);
-    return NextResponse.redirect(`${process.env.WEBHOOK_BASE_URL}/auth/error?error=${encodeURIComponent(error)}`);
+    return NextResponse.redirect(`${process.env.WEBHOOK_BASE_URL}/?error=${encodeURIComponent(error)}`);
   }
 
   if (!code || !state) {
@@ -129,122 +92,88 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
 
   try {
     const { clientId, returnUrl } = JSON.parse(state);
+    console.log('Processing callback for client:', clientId);
 
+    // Exchange code for tokens
     const tokenRequest = {
       code: code,
       scopes: [
         'https://graph.microsoft.com/Mail.Read',
-        'https://graph.microsoft.com/Mail.ReadWrite', 
+        'https://graph.microsoft.com/Mail.ReadWrite',
         'https://graph.microsoft.com/Mail.Send',
-        'https://graph.microsoft.com/Calendars.Read',
+        'https://graph.microsoft.com/User.Read',
         'offline_access'
       ],
       redirectUri: `${process.env.WEBHOOK_BASE_URL}/api/auth/callback`
     };
 
     const response = await cca.acquireTokenByCode(tokenRequest);
-
+    
     if (!response) {
       throw new Error('Failed to acquire token');
     }
 
-    // Get user info from Microsoft Graph
-    const userInfoResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
+    console.log('Token acquired successfully');
+
+    // Get user profile from Microsoft Graph
+    const userResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
       headers: {
         'Authorization': `Bearer ${response.accessToken}`
       }
     });
 
-    if (!userInfoResponse.ok) {
-      throw new Error('Failed to get user info');
+    if (!userResponse.ok) {
+      throw new Error('Failed to get user profile');
     }
 
-    const userInfo = await userInfoResponse.json();
+    const userProfile = await userResponse.json();
+    console.log('User profile:', userProfile.mail || userProfile.userPrincipalName);
 
-    // Store or update email account in database
-    const { data: emailAccount, error: accountError } = await supabase
+    // Create or update client record
+    const { data: client, error: clientError } = await supabase
+      .from('clients')
+      .upsert({
+        id: clientId.startsWith('temp-') ? undefined : clientId,
+        name: userProfile.displayName || 'Unknown User',
+        email: userProfile.mail || userProfile.userPrincipalName,
+        is_active: true,
+        created_at: new Date().toISOString()
+      }, {
+        onConflict: 'email'
+      })
+      .select()
+      .single();
+
+    if (clientError) {
+      console.error('Database error:', clientError);
+      throw new Error('Failed to save client information');
+    }
+
+    console.log('Client record created/updated:', client.id);
+
+    // Create email account record
+    const { error: accountError } = await supabase
       .from('email_accounts')
       .upsert({
-        client_id: clientId,
-        email_address: userInfo.mail || userInfo.userPrincipalName,
+        client_id: client.id,
+        email_address: userProfile.mail || userProfile.userPrincipalName,
         access_token: response.accessToken,
         refresh_token: (response as any).refreshToken || null,
         is_active: true
       }, {
         onConflict: 'client_id,email_address'
-      })
-      .select()
-      .single();
+      });
 
     if (accountError) {
-      console.error('Database error:', accountError);
-      throw new Error('Failed to save account information');
+      console.error('Email account error:', accountError);
+      // Don't fail completely, just log the error
     }
 
-    // Set up webhook subscription for this email account
-    try {
-      await setupWebhookSubscription(response.accessToken, userInfo.mail || userInfo.userPrincipalName);
-    } catch (webhookError) {
-      console.error('Webhook setup error:', webhookError);
-      // Don't fail the whole process if webhook setup fails
-    }
-
-    // Redirect to success page
-    return NextResponse.redirect(`${process.env.WEBHOOK_BASE_URL}${returnUrl}?success=true`);
+    // Redirect back to dashboard with success
+    return NextResponse.redirect(`${process.env.WEBHOOK_BASE_URL}${returnUrl}?success=true&client=${client.id}`);
 
   } catch (error) {
     console.error('Callback processing error:', error);
-    return NextResponse.redirect(`${process.env.WEBHOOK_BASE_URL}/auth/error?error=${encodeURIComponent('Failed to process authentication')}`);
-  }
-}
-
-async function handleSignOut(request: NextRequest, searchParams: URLSearchParams) {
-  if (!supabase) {
-    return NextResponse.json({ error: 'Service not configured' }, { status: 503 });
-  }
-
-  const clientId = searchParams.get('clientId');
-  
-  if (clientId) {
-    // Deactivate email accounts for this client
-    await supabase
-      .from('email_accounts')
-      .update({ is_active: false })
-      .eq('client_id', clientId);
-  }
-
-  return NextResponse.json({ success: true });
-}
-
-async function setupWebhookSubscription(accessToken: string, emailAddress: string) {
-  if (!supabase) {
-    throw new Error('Supabase not configured');
-  }
-
-  try {
-    const graphService = new GraphService(accessToken);
-    const clientState = generateClientState(emailAddress);
-    
-    const subscription = await graphService.subscribeToEmails(
-      `${process.env.WEBHOOK_BASE_URL}/api/webhooks/email-received`,
-      clientState
-    );
-
-    // Store subscription info in database
-    await supabase
-      .from('webhook_subscriptions')
-      .insert({
-        email_account_id: emailAddress, // This should be the actual account ID
-        subscription_id: subscription.id,
-        webhook_url: `${process.env.WEBHOOK_BASE_URL}/api/webhooks/email-received`,
-        client_state: clientState,
-        expires_at: subscription.expirationDateTime,
-        is_active: true
-      });
-
-    console.log('Webhook subscription created:', subscription.id);
-  } catch (error) {
-    console.error('Failed to setup webhook subscription:', error);
-    throw error;
+    return NextResponse.redirect(`${process.env.WEBHOOK_BASE_URL}/?error=${encodeURIComponent('Failed to complete authentication')}`);
   }
 }
