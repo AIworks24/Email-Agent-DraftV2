@@ -409,12 +409,15 @@ export default function ClientDashboard() {
               fontSize: '12px',
               marginBottom: '24px'
             }}>
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{`# Environment Status
-✓ NEXT_PUBLIC_SUPABASE_URL: Configured
-✓ SUPABASE_SERVICE_ROLE_KEY: Configured  
-❌ ANTHROPIC_API_KEY: Not Set
-❌ MICROSOFT_CLIENT_ID: Not Set
-❌ WEBHOOK_BASE_URL: Not Set`}</pre>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+{`# Environment Status
+${envStatus?.NEXT_PUBLIC_SUPABASE_URL ? '✓' : '❌'} NEXT_PUBLIC_SUPABASE_URL: ${envStatus?.NEXT_PUBLIC_SUPABASE_URL ? 'Configured' : 'Not Set'}
+${envStatus?.SUPABASE_SERVICE_ROLE_KEY ? '✓' : '❌'} SUPABASE_SERVICE_ROLE_KEY: ${envStatus?.SUPABASE_SERVICE_ROLE_KEY ? 'Configured' : 'Not Set'}
+${envStatus?.ANTHROPIC_API_KEY ? '✓' : '❌'} ANTHROPIC_API_KEY: ${envStatus?.ANTHROPIC_API_KEY ? 'Configured' : 'Not Set'}
+${envStatus?.MICROSOFT_CLIENT_ID ? '✓' : '❌'} MICROSOFT_CLIENT_ID: ${envStatus?.MICROSOFT_CLIENT_ID ? 'Configured' : 'Not Set'}
+${envStatus?.MICROSOFT_CLIENT_SECRET ? '✓' : '❌'} MICROSOFT_CLIENT_SECRET: ${envStatus?.MICROSOFT_CLIENT_SECRET ? 'Configured' : 'Not Set'}
+${envStatus?.WEBHOOK_BASE_URL ? '✓' : '❌'} WEBHOOK_BASE_URL: ${envStatus?.WEBHOOK_BASE_URL ? 'Configured' : 'Not Set'}`}
+              </pre>
             </div>
 
             <div style={{
