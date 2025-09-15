@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { envStatus } from '@/lib/env-status';
 
 interface Client {
   id: string;
