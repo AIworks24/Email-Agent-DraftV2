@@ -1,58 +1,31 @@
-// Replace the ENTIRE src/app/api/auth/[...nextauth]/route.ts with this corrected version:
+// Replace your ENTIRE src/app/api/auth/[...nextauth]/route.ts with this corrected version
+// This uses the SAME Supabase pattern as your working API routes:
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize MSAL and Supabase only when environment variables are available
-let cca: ConfidentialClientApplication | null = null;
-let supabase: any = null;
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-// Initialize clients only when needed (not during build)
-function initializeClients() {
-  if (!cca && process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET) {
-    const msalConfig = {
-      auth: {
-        clientId: process.env.MICROSOFT_CLIENT_ID,
-        clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
-        authority: 'https://login.microsoftonline.com/common'
-      }
-    };
-    cca = new ConfidentialClientApplication(msalConfig);
+const msalConfig = {
+  auth: {
+    clientId: process.env.MICROSOFT_CLIENT_ID!,
+    clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
+    authority: 'https://login.microsoftonline.com/common'
   }
+};
 
-  if (!supabase && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
-  }
-}
+const cca = new ConfidentialClientApplication(msalConfig);
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { nextauth: string[] } }
 ) {
-  // Initialize clients on first request
-  initializeClients();
-  
   const [action] = params.nextauth;
   const { searchParams } = new URL(request.url);
-
-  // Check if services are properly configured
-  if (!cca) {
-    return NextResponse.json({ 
-      error: 'Microsoft Graph not configured',
-      message: 'Missing Microsoft client configuration' 
-    }, { status: 503 });
-  }
-
-  if (!supabase) {
-    return NextResponse.json({ 
-      error: 'Database not configured',
-      message: 'Missing Supabase configuration' 
-    }, { status: 503 });
-  }
 
   try {
     switch (action) {
@@ -76,8 +49,6 @@ async function handleSignIn(request: NextRequest, searchParams: URLSearchParams)
   const clientId = searchParams.get('clientId');
   const returnUrl = searchParams.get('returnUrl') || '/';
 
-  console.log('Starting OAuth flow for client:', clientId);
-
   const scopes = [
     'https://graph.microsoft.com/Mail.Read',
     'https://graph.microsoft.com/Mail.ReadWrite',
@@ -94,8 +65,7 @@ async function handleSignIn(request: NextRequest, searchParams: URLSearchParams)
   };
 
   try {
-    const authUrl = await cca!.getAuthCodeUrl(authCodeUrlParameters);
-    console.log('Redirecting to:', authUrl);
+    const authUrl = await cca.getAuthCodeUrl(authCodeUrlParameters);
     return NextResponse.redirect(authUrl);
   } catch (error) {
     console.error('Error generating auth URL:', error);
@@ -119,7 +89,6 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
 
   try {
     const { clientId, returnUrl } = JSON.parse(state);
-    console.log('Processing callback for client:', clientId);
 
     const tokenRequest = {
       code: code,
@@ -133,13 +102,11 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
       redirectUri: `${process.env.WEBHOOK_BASE_URL}/api/auth/callback`
     };
 
-    const response = await cca!.acquireTokenByCode(tokenRequest);
+    const response = await cca.acquireTokenByCode(tokenRequest);
     
     if (!response) {
       throw new Error('Failed to acquire token');
     }
-
-    console.log('Token acquired successfully');
 
     // Get user profile from Microsoft Graph
     const userResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
@@ -153,7 +120,6 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
     }
 
     const userProfile = await userResponse.json();
-    console.log('User profile:', userProfile.mail || userProfile.userPrincipalName);
 
     // Create or update client record
     const { data: client, error: clientError } = await supabase
@@ -175,8 +141,6 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
       throw new Error('Failed to save client information');
     }
 
-    console.log('Client record created/updated:', client.id);
-
     // Create email account record
     const { error: accountError } = await supabase
       .from('email_accounts')
@@ -184,7 +148,7 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
         client_id: client.id,
         email_address: userProfile.mail || userProfile.userPrincipalName,
         access_token: response.accessToken,
-        refresh_token: null, // Simplified for now
+        refresh_token: null,
         is_active: true
       }, {
         onConflict: 'client_id,email_address'
@@ -192,7 +156,6 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
 
     if (accountError) {
       console.error('Email account error:', accountError);
-      // Don't fail completely, just log the error
     }
 
     // Redirect back to dashboard with success
