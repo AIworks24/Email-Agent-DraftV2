@@ -3,6 +3,15 @@
 import { useState, useEffect } from 'react';
 import { envStatus } from '@/lib/env-status';
 
+interface ClientSettings {
+  writingStyle: 'professional' | 'casual' | 'formal' | 'friendly' | 'concise' | string;
+  tone: 'friendly' | 'professional' | 'enthusiastic' | 'neutral' | 'empathetic' | string;
+  signature: string;
+  sampleEmails: string[];
+  autoResponse: boolean;
+  responseDelay: number; // minutes
+}
+
 interface Client {
   id: string;
   name: string;
@@ -11,6 +20,8 @@ interface Client {
   stats: {
     totalEmails: number;
   };
+  // Added so client.settings?. works with TypeScript
+  settings?: Partial<ClientSettings>;
 }
 
 interface EmailStats {
@@ -69,26 +80,109 @@ export default function ClientDashboard() {
   };
 
   const initiateClientRegistration = async () => {
-  try {
-    console.log('Starting Microsoft Graph OAuth flow...');
-    
-    // Generate a temporary client ID for the OAuth flow
-    const tempClientId = `temp-${Date.now()}`;
-    const returnUrl = encodeURIComponent(window.location.pathname);
-    
-    // Redirect to Microsoft Graph OAuth
-    const authUrl = `/api/auth/signin?clientId=${tempClientId}&returnUrl=${returnUrl}`;
-    console.log('Redirecting to:', authUrl);
-    
-    // This will redirect the user to Microsoft login
-    window.location.href = authUrl;
-    
-  } catch (error) {
-    console.error('Registration error:', error);
-    alert('Failed to start client registration. Please check the console for details.');
-  }
-};
+    try {
+      console.log('Starting Microsoft Graph OAuth flow...');
+      
+      // Generate a temporary client ID for the OAuth flow
+      const tempClientId = `temp-${Date.now()}`;
+      const returnUrl = encodeURIComponent(window.location.pathname);
+      
+      // Redirect to Microsoft Graph OAuth
+      const authUrl = `/api/auth/signin?clientId=${tempClientId}&returnUrl=${returnUrl}`;
+      console.log('Redirecting to:', authUrl);
+      
+      // This will redirect the user to Microsoft login
+      window.location.href = authUrl;
+      
+    } catch (error) {
+      console.error('Registration error:', error);
+      alert('Failed to start client registration. Please check the console for details.');
+    }
+  };
 
+  // ===== New state per your instructions =====
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [showManageModal, setShowManageModal] = useState(false);
+  const [clientSettings, setClientSettings] = useState<ClientSettings>({
+    writingStyle: 'professional',
+    tone: 'friendly',
+    signature: '',
+    sampleEmails: [''],
+    autoResponse: true,
+    responseDelay: 5 // minutes
+  });
+
+  // ===== Handlers per your instructions =====
+  const handleManageClient = (client: Client) => {
+    console.log('Managing client:', client);
+    setSelectedClient(client);
+    
+    // Load existing settings or set defaults
+    setClientSettings({
+      writingStyle: client.settings?.writingStyle || 'professional',
+      tone: client.settings?.tone || 'friendly', 
+      signature: client.settings?.signature || `Best regards,\n${client.name}`,
+      sampleEmails: client.settings?.sampleEmails || [''],
+      autoResponse: client.settings?.autoResponse !== false,
+      responseDelay: client.settings?.responseDelay ?? 5
+    });
+    
+    setShowManageModal(true);
+  };
+
+  const saveClientSettings = async () => {
+    if (!selectedClient) return;
+    
+    try {
+      const response = await fetch(`/api/clients/${selectedClient.id}/settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(clientSettings),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save settings');
+      }
+
+      // Update local client data
+      setClients(clients.map(client => 
+        client.id === selectedClient.id 
+          ? { ...client, settings: clientSettings }
+          : client
+      ));
+      
+      setShowManageModal(false);
+      alert('Settings saved successfully!');
+      
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      alert('Failed to save settings. Please try again.');
+    }
+  };
+
+  const updateSampleEmail = (index: number, value: string) => {
+    const newSampleEmails = [...clientSettings.sampleEmails];
+    newSampleEmails[index] = value;
+    setClientSettings({ ...clientSettings, sampleEmails: newSampleEmails });
+  };
+
+  const addSampleEmail = () => {
+    setClientSettings({ 
+      ...clientSettings, 
+      sampleEmails: [...clientSettings.sampleEmails, ''] 
+    });
+  };
+
+  const removeSampleEmail = (index: number) => {
+    if (clientSettings.sampleEmails.length > 1) {
+      const newSampleEmails = clientSettings.sampleEmails.filter((_, i) => i !== index);
+      setClientSettings({ ...clientSettings, sampleEmails: newSampleEmails });
+    }
+  };
+
+  // ===== Original inline styles kept =====
   const buttonStyle = {
     padding: '12px 24px',
     border: 'none',
@@ -161,12 +255,12 @@ export default function ClientDashboard() {
                 ✓ System Online
               </div>
               <button 
-              onClick={initiateClientRegistration}
-              style={{
-                ...buttonStyle,
-                backgroundColor: '#3b82f6',
-                color: 'white'
-              }}>
+                onClick={initiateClientRegistration}
+                style={{
+                  ...buttonStyle,
+                  backgroundColor: '#3b82f6',
+                  color: 'white'
+                }}>
                 + Add Client
               </button>
             </div>
@@ -310,12 +404,12 @@ export default function ClientDashboard() {
                 Client Management
               </h2>
               <button 
-              onClick={initiateClientRegistration}
-              style={{
-                ...buttonStyle,
-                backgroundColor: '#3b82f6',
-                color: 'white'
-              }}>
+                onClick={initiateClientRegistration}
+                style={{
+                  ...buttonStyle,
+                  backgroundColor: '#3b82f6',
+                  color: 'white'
+                }}>
                 + Add New Client
               </button>
             </div>
@@ -403,12 +497,13 @@ export default function ClientDashboard() {
                       }}>
                         {client.status}
                       </span>
-                      <button style={{
-                        ...buttonStyle,
-                        backgroundColor: '#f3f4f6',
-                        color: '#374151',
-                        padding: '8px 12px'
-                      }}>
+
+                      {/* Updated Manage button to use the handler (Tailwind classes per your snippet) */}
+                      <button
+                        onClick={() => handleManageClient(client)}
+                        className="text-blue-600 hover:text-blue-900 font-medium"
+                        style={{ padding: '8px 12px', background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 6 }}
+                      >
                         Manage
                       </button>
                     </div>
@@ -463,6 +558,201 @@ ${envStatus?.WEBHOOK_BASE_URL ? '✓' : '❌'} WEBHOOK_BASE_URL: ${envStatus?.WE
           </div>
         )}
       </div>
+
+      {showManageModal && selectedClient && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-semibold text-gray-900">
+                  Manage Client: {selectedClient.name}
+                </h2>
+                <button
+                  onClick={() => setShowManageModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                  aria-label="Close modal"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Client Info */}
+              <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Email</label>
+                    <p className="text-gray-900">{selectedClient.email}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Status</label>
+                    <span className={`px-2 py-1 rounded text-xs ${
+                      selectedClient.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {selectedClient.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* AI Response Settings */}
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">AI Response Settings</h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Writing Style */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Writing Style
+                      </label>
+                      <select
+                        value={clientSettings.writingStyle}
+                        onChange={(e) => setClientSettings({...clientSettings, writingStyle: e.target.value})}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="professional">Professional</option>
+                        <option value="casual">Casual</option>
+                        <option value="formal">Formal</option>
+                        <option value="friendly">Friendly</option>
+                        <option value="concise">Concise</option>
+                      </select>
+                    </div>
+
+                    {/* Tone */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Tone
+                      </label>
+                      <select
+                        value={clientSettings.tone}
+                        onChange={(e) => setClientSettings({...clientSettings, tone: e.target.value})}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="friendly">Friendly</option>
+                        <option value="professional">Professional</option>
+                        <option value="enthusiastic">Enthusiastic</option>
+                        <option value="neutral">Neutral</option>
+                        <option value="empathetic">Empathetic</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Auto Response Toggle */}
+                  <div className="mt-4">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={clientSettings.autoResponse}
+                        onChange={(e) => setClientSettings({...clientSettings, autoResponse: e.target.checked})}
+                        className="mr-2"
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        Enable automatic AI responses
+                      </span>
+                    </label>
+                  </div>
+
+                  {/* Response Delay */}
+                  {clientSettings.autoResponse && (
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Response Delay (minutes)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={60}
+                        value={clientSettings.responseDelay}
+                        onChange={(e) => setClientSettings({...clientSettings, responseDelay: parseInt(e.target.value || '0', 10)})}
+                        className="w-24 border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Wait time before sending AI response</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Email Signature */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Email Signature
+                  </label>
+                  <textarea
+                    value={clientSettings.signature}
+                    onChange={(e) => setClientSettings({...clientSettings, signature: e.target.value})}
+                    rows={4}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Best regards,&#10;John Doe&#10;CEO, Company Name&#10;phone@email.com"
+                  />
+                </div>
+
+                {/* Sample Emails */}
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Sample Emails (for AI training)
+                    </label>
+                    <button
+                      onClick={addSampleEmail}
+                      type="button"
+                      className="text-sm text-blue-600 hover:text-blue-800"
+                    >
+                      + Add Sample
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {clientSettings.sampleEmails.map((email, index) => (
+                      <div key={index} className="relative">
+                        <textarea
+                          value={email}
+                          onChange={(e) => updateSampleEmail(index, e.target.value)}
+                          rows={4}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder={`Sample email ${index + 1} - paste an example email you've written to train the AI on your style`}
+                        />
+                        {clientSettings.sampleEmails.length > 1 && (
+                          <button
+                            onClick={() => removeSampleEmail(index)}
+                            type="button"
+                            className="absolute top-2 right-2 text-red-500 hover:text-red-700"
+                            aria-label="Remove sample"
+                          >
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Add examples of your typical emails to help the AI match your writing style
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end space-x-3 mt-8 pt-6 border-t">
+                <button
+                  onClick={() => setShowManageModal(false)}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveClientSettings}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                >
+                  Save Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
