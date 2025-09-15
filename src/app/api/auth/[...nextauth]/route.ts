@@ -1,31 +1,58 @@
-// Update your src/app/api/auth/[...nextauth]/route.ts
-// Based on your existing Microsoft Graph integration
+// Replace the ENTIRE src/app/api/auth/[...nextauth]/route.ts with this corrected version:
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Initialize MSAL and Supabase only when environment variables are available
+let cca: ConfidentialClientApplication | null = null;
+let supabase: any = null;
 
-const msalConfig = {
-  auth: {
-    clientId: process.env.MICROSOFT_CLIENT_ID!,
-    clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
-    authority: 'https://login.microsoftonline.com/common'
+// Initialize clients only when needed (not during build)
+function initializeClients() {
+  if (!cca && process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET) {
+    const msalConfig = {
+      auth: {
+        clientId: process.env.MICROSOFT_CLIENT_ID,
+        clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
+        authority: 'https://login.microsoftonline.com/common'
+      }
+    };
+    cca = new ConfidentialClientApplication(msalConfig);
   }
-};
 
-const cca = new ConfidentialClientApplication(msalConfig);
+  if (!supabase && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+  }
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { nextauth: string[] } }
 ) {
+  // Initialize clients on first request
+  initializeClients();
+  
   const [action] = params.nextauth;
   const { searchParams } = new URL(request.url);
+
+  // Check if services are properly configured
+  if (!cca) {
+    return NextResponse.json({ 
+      error: 'Microsoft Graph not configured',
+      message: 'Missing Microsoft client configuration' 
+    }, { status: 503 });
+  }
+
+  if (!supabase) {
+    return NextResponse.json({ 
+      error: 'Database not configured',
+      message: 'Missing Supabase configuration' 
+    }, { status: 503 });
+  }
 
   try {
     switch (action) {
@@ -63,11 +90,11 @@ async function handleSignIn(request: NextRequest, searchParams: URLSearchParams)
     scopes: scopes,
     redirectUri: `${process.env.WEBHOOK_BASE_URL}/api/auth/callback`,
     state: JSON.stringify({ clientId, returnUrl }),
-    prompt: 'select_account' // Force account selection
+    prompt: 'select_account' as const
   };
 
   try {
-    const authUrl = await cca.getAuthCodeUrl(authCodeUrlParameters);
+    const authUrl = await cca!.getAuthCodeUrl(authCodeUrlParameters);
     console.log('Redirecting to:', authUrl);
     return NextResponse.redirect(authUrl);
   } catch (error) {
@@ -94,7 +121,6 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
     const { clientId, returnUrl } = JSON.parse(state);
     console.log('Processing callback for client:', clientId);
 
-    // Exchange code for tokens
     const tokenRequest = {
       code: code,
       scopes: [
@@ -107,7 +133,7 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
       redirectUri: `${process.env.WEBHOOK_BASE_URL}/api/auth/callback`
     };
 
-    const response = await cca.acquireTokenByCode(tokenRequest);
+    const response = await cca!.acquireTokenByCode(tokenRequest);
     
     if (!response) {
       throw new Error('Failed to acquire token');
@@ -158,7 +184,7 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
         client_id: client.id,
         email_address: userProfile.mail || userProfile.userPrincipalName,
         access_token: response.accessToken,
-        refresh_token: (response as any).refreshToken || null,
+        refresh_token: null, // Simplified for now
         is_active: true
       }, {
         onConflict: 'client_id,email_address'
