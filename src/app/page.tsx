@@ -1,9 +1,69 @@
-'use client';
+import { useState, useEffect } from 'react';
 
-import { useState } from 'react';
+interface Client {
+  id: string;
+  name: string;
+  email: string;
+  status: string;
+  stats: {
+    totalEmails: number;
+  };
+}
 
-export default function HomePage() {
+interface EmailStats {
+  totalEmails: number;
+  draftsCreated: number;
+  emailsSent: number;
+  activeClients: number;
+}
+
+export default function ClientDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [clients, setClients] = useState<Client[]>([]);
+  const [emailStats, setEmailStats] = useState<EmailStats>({
+    totalEmails: 0,
+    draftsCreated: 0,
+    emailsSent: 0,
+    activeClients: 0
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const [clientsResponse, statsResponse] = await Promise.all([
+        fetch('/api/clients'),
+        fetch('/api/stats')
+      ]);
+
+      if (clientsResponse.ok) {
+        const clientsData = await clientsResponse.json();
+        setClients(clientsData.clients || []);
+      }
+
+      if (statsResponse.ok) {
+        const statsData = await statsResponse.json();
+        setEmailStats(statsData.stats || {
+          totalEmails: 0,
+          draftsCreated: 0,
+          emailsSent: 0,
+          activeClients: 0
+        });
+      }
+    } catch (err) {
+      console.error('Error loading dashboard data:', err);
+      setError('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const buttonStyle = {
     padding: '12px 24px',
@@ -11,10 +71,8 @@ export default function HomePage() {
     borderRadius: '6px',
     cursor: 'pointer',
     fontSize: '14px',
-    fontWeight: '500',
+    fontWeight: '500' as const,
     transition: 'all 0.2s ease',
-    backgroundColor: '#f3f4f6',
-    color: '#374151',
     marginRight: '8px',
     marginBottom: '8px'
   };
@@ -24,7 +82,8 @@ export default function HomePage() {
     borderRadius: '8px',
     padding: '24px',
     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-    border: '1px solid #e5e7eb'
+    border: '1px solid #e5e7eb',
+    marginBottom: '24px'
   };
 
   return (
@@ -53,216 +112,322 @@ export default function HomePage() {
                 margin: '0 0 8px 0',
                 color: '#111827'
               }}>
-                AI Email Agent
+                AI Email Agent Dashboard
               </h1>
               <p style={{
                 color: '#6b7280',
                 margin: 0,
                 fontSize: '16px'
               }}>
-                Intelligent email automation powered by Claude AI
+                Manage client email automation and AI responses
               </p>
             </div>
             <div style={{
-              padding: '8px 16px',
-              backgroundColor: '#10b981',
-              color: 'white',
-              borderRadius: '6px',
-              fontSize: '14px',
-              fontWeight: '500'
+              display: 'flex',
+              gap: '12px'
             }}>
-              Online
+              <div style={{
+                padding: '8px 16px',
+                backgroundColor: '#10b981',
+                color: 'white',
+                borderRadius: '6px',
+                fontSize: '14px',
+                fontWeight: '500'
+              }}>
+                ✓ System Online
+              </div>
+              <button style={{
+                ...buttonStyle,
+                backgroundColor: '#3b82f6',
+                color: 'white'
+              }}>
+                + Add Client
+              </button>
             </div>
           </div>
 
           {/* Navigation */}
-          <div style={{ marginBottom: '24px' }}>
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              style={{
-                ...buttonStyle,
-                backgroundColor: activeTab === 'dashboard' ? '#3b82f6' : '#f3f4f6',
-                color: activeTab === 'dashboard' ? 'white' : '#374151'
-              }}
-            >
-              Dashboard
-            </button>
-            <button
-              onClick={() => setActiveTab('setup')}
-              style={{
-                ...buttonStyle,
-                backgroundColor: activeTab === 'setup' ? '#3b82f6' : '#f3f4f6',
-                color: activeTab === 'setup' ? 'white' : '#374151'
-              }}
-            >
-              Setup
-            </button>
-            <button
-              onClick={() => setActiveTab('clients')}
-              style={{
-                ...buttonStyle,
-                backgroundColor: activeTab === 'clients' ? '#3b82f6' : '#f3f4f6',
-                color: activeTab === 'clients' ? 'white' : '#374151'
-              }}
-            >
-              Clients
-            </button>
+          <div>
+            {['dashboard', 'clients', 'settings'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                style={{
+                  ...buttonStyle,
+                  backgroundColor: activeTab === tab ? '#3b82f6' : '#f3f4f6',
+                  color: activeTab === tab ? 'white' : '#374151'
+                }}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Content */}
+        {/* Dashboard Content */}
         {activeTab === 'dashboard' && (
-          <div style={{ marginTop: '24px' }}>
-            <div style={cardStyle}>
-              <h2 style={{ margin: '0 0 16px 0' }}>System Status</h2>
+          <div>
+            {/* Stats Overview */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+              gap: '24px',
+              marginBottom: '24px'
+            }}>
               <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                gap: '16px'
+                ...cardStyle,
+                textAlign: 'center' as const,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white'
               }}>
-                <div style={{
-                  padding: '16px',
-                  backgroundColor: '#f0f9ff',
-                  borderRadius: '6px',
-                  textAlign: 'center'
-                }}>
-                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#0369a1' }}>
-                    Ready
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#6b7280' }}>
-                    System Status
-                  </div>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '8px' }}>
+                  {loading ? '...' : emailStats.totalEmails}
                 </div>
-                
-                <div style={{
-                  padding: '16px',
-                  backgroundColor: '#f0fdf4',
-                  borderRadius: '6px',
-                  textAlign: 'center'
-                }}>
-                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#059669' }}>
-                    0
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#6b7280' }}>
-                    Active Clients
-                  </div>
-                </div>
-
-                <div style={{
-                  padding: '16px',
-                  backgroundColor: '#fefce8',
-                  borderRadius: '6px',
-                  textAlign: 'center'
-                }}>
-                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ca8a04' }}>
-                    0
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#6b7280' }}>
-                    Emails Processed
-                  </div>
+                <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                  Total Emails Processed
                 </div>
               </div>
               
-              <div style={{ marginTop: '24px' }}>
+              <div style={{
+                ...cardStyle,
+                textAlign: 'center' as const,
+                background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                color: 'white'
+              }}>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '8px' }}>
+                  {loading ? '...' : emailStats.draftsCreated}
+                </div>
+                <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                  AI Drafts Created
+                </div>
+              </div>
+
+              <div style={{
+                ...cardStyle,
+                textAlign: 'center' as const,
+                background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                color: 'white'
+              }}>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '8px' }}>
+                  {loading ? '...' : emailStats.emailsSent}
+                </div>
+                <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                  Emails Sent
+                </div>
+              </div>
+
+              <div style={{
+                ...cardStyle,
+                textAlign: 'center' as const,
+                background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+                color: 'white'
+              }}>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '8px' }}>
+                  {loading ? '...' : emailStats.activeClients}
+                </div>
+                <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                  Active Clients
+                </div>
+              </div>
+            </div>
+
+            {/* Activity Section */}
+            <div style={cardStyle}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600' }}>
+                Email Activity
+              </h3>
+              {loading ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                  Loading...
+                </div>
+              ) : clients.length === 0 ? (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '40px',
+                  color: '#6b7280'
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>📧</div>
+                  <div style={{ fontSize: '18px', marginBottom: '8px' }}>No Email Activity Yet</div>
+                  <div style={{ fontSize: '14px', marginBottom: '16px' }}>
+                    Connect your first client to start processing emails.
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('clients')}
+                    style={{
+                      ...buttonStyle,
+                      backgroundColor: '#3b82f6',
+                      color: 'white'
+                    }}
+                  >
+                    Add Your First Client
+                  </button>
+                </div>
+              ) : (
+                <div style={{ color: '#6b7280', textAlign: 'center', padding: '20px' }}>
+                  Email activity will appear here once emails are processed.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Clients Tab */}
+        {activeTab === 'clients' && (
+          <div style={cardStyle}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '24px'
+            }}>
+              <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>
+                Client Management
+              </h2>
+              <button style={{
+                ...buttonStyle,
+                backgroundColor: '#3b82f6',
+                color: 'white'
+              }}>
+                + Add New Client
+              </button>
+            </div>
+
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                Loading clients...
+              </div>
+            ) : error ? (
+              <div style={{
+                textAlign: 'center',
+                padding: '40px',
+                color: '#dc2626',
+                backgroundColor: '#fef2f2',
+                borderRadius: '8px',
+                border: '1px solid #fecaca'
+              }}>
+                <div style={{ fontSize: '16px', marginBottom: '8px' }}>⚠️ Error Loading Clients</div>
+                <div style={{ fontSize: '14px', marginBottom: '16px' }}>{error}</div>
                 <button
-                  onClick={() => setActiveTab('setup')}
+                  onClick={loadDashboardData}
                   style={{
                     ...buttonStyle,
-                    backgroundColor: '#3b82f6',
-                    color: 'white',
-                    padding: '16px',
-                    textAlign: 'left'
+                    backgroundColor: '#dc2626',
+                    color: 'white'
                   }}
                 >
-                  <div style={{ fontWeight: 'bold' }}>Configuration</div>
-                  <div style={{ fontSize: '12px', opacity: 0.8 }}>Setup environment</div>
+                  Retry
                 </button>
               </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'setup' && (
-          <div style={{ marginTop: '24px' }}>
-            <div style={cardStyle}>
-              <h2 style={{ margin: '0 0 16px 0' }}>Environment Configuration</h2>
-              <p style={{ margin: '0 0 24px 0', color: '#6b7280' }}>
-                Configure these environment variables in your Vercel dashboard:
-              </p>
-              
+            ) : clients.length === 0 ? (
               <div style={{
-                backgroundColor: '#f3f4f6',
-                padding: '16px',
-                borderRadius: '4px',
-                fontFamily: 'monospace',
-                fontSize: '12px',
-                marginBottom: '24px'
-              }}>
-                <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{`# Supabase Configuration
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_key
-
-# Anthropic API
-ANTHROPIC_API_KEY=your_anthropic_api_key
-
-# Microsoft Graph API
-MICROSOFT_CLIENT_ID=your_azure_client_id
-MICROSOFT_CLIENT_SECRET=your_azure_client_secret
-MICROSOFT_TENANT_ID=your_azure_tenant_id
-
-# Webhook URL
-WEBHOOK_BASE_URL=https://your-vercel-app.vercel.app`}</pre>
-              </div>
-
-              <h3 style={{ margin: '24px 0 16px 0' }}>Setup Steps</h3>
-              <ol style={{ paddingLeft: '20px' }}>
-                <li style={{ marginBottom: '8px' }}>Go to Vercel Dashboard → Settings → Environment Variables</li>
-                <li style={{ marginBottom: '8px' }}>Add each variable listed above</li>
-                <li style={{ marginBottom: '8px' }}>Set up Supabase database schema</li>
-                <li style={{ marginBottom: '8px' }}>Configure Azure App Registration</li>
-                <li style={{ marginBottom: '8px' }}>Redeploy your application</li>
-              </ol>
-
-              <div style={{ marginTop: '24px', padding: '16px', backgroundColor: '#f0f9ff', borderRadius: '6px' }}>
-                <h4 style={{ margin: '0 0 8px 0', color: '#0369a1' }}>API Test Endpoints</h4>
-                <p style={{ margin: '0', fontSize: '14px', color: '#374151' }}>
-                  Test your deployment: 
-                  <code style={{ 
-                    backgroundColor: '#e5e7eb', 
-                    padding: '2px 6px', 
-                    borderRadius: '3px',
-                    marginLeft: '8px',
-                    fontSize: '12px'
-                  }}>
-                    /api/webhooks/email-received
-                  </code>
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'clients' && (
-          <div style={{ marginTop: '24px' }}>
-            <div style={cardStyle}>
-              <h2 style={{ margin: '0 0 16px 0' }}>Client Management</h2>
-              <p style={{ margin: '0 0 24px 0', color: '#6b7280' }}>
-                Manage email automation clients
-              </p>
-              
-              <div style={{
-                border: '2px dashed #d1d5db',
-                borderRadius: '8px',
-                padding: '32px',
                 textAlign: 'center',
-                color: '#6b7280'
+                padding: '60px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '8px',
+                border: '2px dashed #d1d5db'
               }}>
-                <div style={{ fontSize: '18px', marginBottom: '8px' }}>No clients configured yet</div>
-                <div style={{ fontSize: '14px' }}>
-                  Complete the setup configuration first, then add your first client.
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>👥</div>
+                <div style={{ fontSize: '18px', marginBottom: '8px', color: '#374151' }}>
+                  No Clients Yet
                 </div>
+                <div style={{ fontSize: '14px', color: '#6b7280', marginBottom: '24px' }}>
+                  Add your first client to start automating email responses.
+                </div>
+                <button style={{
+                  ...buttonStyle,
+                  backgroundColor: '#3b82f6',
+                  color: 'white'
+                }}>
+                  Add Your First Client
+                </button>
               </div>
+            ) : (
+              <div style={{ display: 'grid', gap: '16px' }}>
+                {clients.map((client) => (
+                  <div key={client.id} style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '16px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    backgroundColor: 'white'
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                        {client.name}
+                      </div>
+                      <div style={{ fontSize: '14px', color: '#6b7280', marginBottom: '4px' }}>
+                        {client.email}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#9ca3af' }}>
+                        {client.stats?.totalEmails || 0} emails processed
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <span style={{
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        backgroundColor: client.status === 'active' ? '#dcfce7' : '#fef3c7',
+                        color: client.status === 'active' ? '#16a34a' : '#d97706'
+                      }}>
+                        {client.status}
+                      </span>
+                      <button style={{
+                        ...buttonStyle,
+                        backgroundColor: '#f3f4f6',
+                        color: '#374151',
+                        padding: '8px 12px'
+                      }}>
+                        Manage
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Settings Tab */}
+        {activeTab === 'settings' && (
+          <div style={cardStyle}>
+            <h2 style={{ margin: '0 0 16px 0' }}>System Configuration</h2>
+            <p style={{ margin: '0 0 24px 0', color: '#6b7280' }}>
+              Environment variables status:
+            </p>
+            
+            <div style={{
+              backgroundColor: '#f3f4f6',
+              padding: '16px',
+              borderRadius: '4px',
+              fontFamily: 'monospace',
+              fontSize: '12px',
+              marginBottom: '24px'
+            }}>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{`# Environment Status
+✓ NEXT_PUBLIC_SUPABASE_URL: Configured
+✓ SUPABASE_SERVICE_ROLE_KEY: Configured  
+❌ ANTHROPIC_API_KEY: Not Set
+❌ MICROSOFT_CLIENT_ID: Not Set
+❌ WEBHOOK_BASE_URL: Not Set`}</pre>
+            </div>
+
+            <div style={{
+              padding: '16px',
+              backgroundColor: '#f0f9ff',
+              borderRadius: '6px',
+              borderLeft: '4px solid #3b82f6'
+            }}>
+              <h4 style={{ margin: '0 0 8px 0', color: '#1e40af' }}>Next Steps</h4>
+              <ol style={{ margin: 0, paddingLeft: '20px', color: '#1e40af' }}>
+                <li>Configure missing environment variables in Vercel</li>
+                <li>Set up Supabase database tables</li>
+                <li>Add your first client</li>
+                <li>Test email automation workflow</li>
+              </ol>
             </div>
           </div>
         )}
