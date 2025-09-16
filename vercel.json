@@ -9,6 +9,12 @@
       "maxDuration": 30
     }
   },
+  "crons": [
+    {
+      "path": "/api/setup-webhook",
+      "schedule": "*/25 * * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
