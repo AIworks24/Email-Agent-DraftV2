@@ -173,8 +173,18 @@ async function processEmailNotification(notification: any) {
       return;
     }
 
-    // Get email details using Microsoft Graph
-    const graphService = new GraphService(emailAccount.access_token);
+    // Get email details using Microsoft Graph with token refresh
+    let graphService;
+    try {
+      const { getValidAccessToken } = await import('@/lib/tokenRefresh');
+      const validToken = await getValidAccessToken(emailAccount.id);
+      graphService = new GraphService(validToken);
+    } catch (tokenError) {
+      console.error('Token refresh failed:', tokenError);
+      // Fallback to stored token
+      graphService = new GraphService(emailAccount.access_token);
+    }
+
     const emailDetails = await graphService.getEmailDetails(messageId);
 
     if (!emailDetails) {
@@ -205,7 +215,6 @@ async function processEmailNotification(notification: any) {
     // Generate AI response and create draft (only if API key is available)
     if (anthropicApiKey) {
       await generateAndCreateDraftReply(
-        graphService,
         emailDetails,
         emailAccount,
         emailLog.id
@@ -238,10 +247,10 @@ async function getClientTemplate(clientId: string) {
   try {
     if (!supabase) return null;
 
-    // Get client with settings
+    // Get client info
     const { data: client, error: clientError } = await supabase
       .from('clients')
-      .select('*, settings')
+      .select('id, name, email')
       .eq('id', clientId)
       .single();
 
@@ -250,7 +259,7 @@ async function getClientTemplate(clientId: string) {
       return null;
     }
 
-    // Get email template if exists
+    // Get email template settings
     const { data: template } = await supabase
       .from('email_templates')
       .select('*')
@@ -258,26 +267,14 @@ async function getClientTemplate(clientId: string) {
       .eq('name', 'Default Template')
       .single();
 
-    // Return template in the format your existing aiProcessor expects
+    // Return template with defaults
     return {
-      writingStyle:
-        client?.settings?.writingStyle ||
-        template?.writing_style ||
-        'professional',
-      tone:
-        client?.settings?.tone ||
-        template?.tone ||
-        'friendly',
-      signature:
-        client?.settings?.signature ||
-        template?.signature ||
-        `Best regards,\n${client?.name ?? ''}`,
-      sampleEmails:
-        client?.settings?.sampleEmails ||
-        template?.sample_emails ||
-        [],
-      autoResponse: template?.auto_response !== false,
-      responseDelay: template?.response_delay || 0
+      writingStyle: template?.writing_style || 'professional',
+      tone: template?.tone || 'friendly',
+      signature: template?.signature || `Best regards,\n${client?.name || ''}`,
+      sampleEmails: template?.sample_emails || [],
+      autoResponse: true,
+      responseDelay: 0
     };
   } catch (error) {
     console.error('Error getting client template:', error);
@@ -293,7 +290,6 @@ async function getClientTemplate(clientId: string) {
 }
 
 async function generateAndCreateDraftReply(
-  graphService: GraphService,
   emailDetails: any,
   emailAccount: any,
   emailLogId: string
@@ -334,12 +330,15 @@ async function generateAndCreateDraftReply(
       return;
     }
 
-    // Apply response delay if configured
-    if (clientTemplate.responseDelay > 0) {
-      console.log(
-        `Response delayed by ${clientTemplate.responseDelay} minutes for client preferences`
-      );
-      // For now, just log - implement queue later if needed
+    // Get fresh access token for Microsoft Graph operations
+    let graphService;
+    try {
+      const { getValidAccessToken } = await import('@/lib/tokenRefresh');
+      const validToken = await getValidAccessToken(emailAccount.id);
+      graphService = new GraphService(validToken);
+    } catch (tokenError) {
+      console.error('Token refresh failed for AI processing:', tokenError);
+      graphService = new GraphService(emailAccount.access_token);
     }
 
     // Get calendar availability for the next 7 days
@@ -381,7 +380,7 @@ async function generateAndCreateDraftReply(
 
     console.log('Draft reply created:', draftReply?.id);
 
-    // Log successful processing with client settings applied
+    // Log successful processing
     await supabase
       .from('email_logs')
       .update({
