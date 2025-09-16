@@ -1,5 +1,5 @@
-// Replace your ENTIRE src/app/api/auth/[...nextauth]/route.ts with this:
-// This initializes Supabase INSIDE the functions, not at module level
+// Fixed: src/app/api/auth/[...nextauth]/route.ts
+// Store refresh tokens for token renewal
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ConfidentialClientApplication } from '@azure/msal-node';
@@ -34,7 +34,6 @@ async function handleSignIn(request: NextRequest, searchParams: URLSearchParams)
   const clientId = searchParams.get('clientId');
   const returnUrl = searchParams.get('returnUrl') || '/';
 
-  // Initialize MSAL inside the function
   const msalConfig = {
     auth: {
       clientId: process.env.MICROSOFT_CLIENT_ID!,
@@ -49,7 +48,7 @@ async function handleSignIn(request: NextRequest, searchParams: URLSearchParams)
     'https://graph.microsoft.com/Mail.ReadWrite',
     'https://graph.microsoft.com/Mail.Send',
     'https://graph.microsoft.com/User.Read',
-    'offline_access'
+    'offline_access' // This is crucial for refresh tokens!
   ];
 
   const authCodeUrlParameters = {
@@ -85,7 +84,6 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
   try {
     const { clientId, returnUrl } = JSON.parse(state);
 
-    // Initialize MSAL inside the function
     const msalConfig = {
       auth: {
         clientId: process.env.MICROSOFT_CLIENT_ID!,
@@ -113,6 +111,12 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
       throw new Error('Failed to acquire token');
     }
 
+    console.log('Token response:', {
+      hasAccessToken: !!response.accessToken,
+      hasRefreshToken: !!(response as any).refreshToken,
+      expiresOn: response.expiresOn
+    });
+
     // Get user profile from Microsoft Graph
     const userResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
       headers: {
@@ -126,7 +130,7 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
 
     const userProfile = await userResponse.json();
 
-    // Initialize Supabase INSIDE the function - this is the key fix
+    // Initialize Supabase
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -152,14 +156,17 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
       throw new Error('Failed to save client information');
     }
 
-    // Create email account record
+    // Cast response to any to access refreshToken (it exists but not in types)
+    const responseAny = response as any;
+
+    // Create email account record with BOTH access and refresh tokens
     const { error: accountError } = await supabase
       .from('email_accounts')
       .upsert({
         client_id: client.id,
         email_address: userProfile.mail || userProfile.userPrincipalName,
         access_token: response.accessToken,
-        refresh_token: null,
+        refresh_token: responseAny.refreshToken || null, // Store refresh token!
         is_active: true
       }, {
         onConflict: 'client_id,email_address'
@@ -168,6 +175,8 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
     if (accountError) {
       console.error('Email account error:', accountError);
     }
+
+    console.log('Auth completed successfully - tokens stored');
 
     // Redirect back to dashboard with success
     return NextResponse.redirect(`${process.env.WEBHOOK_BASE_URL}${returnUrl}?success=true&client=${client.id}`);

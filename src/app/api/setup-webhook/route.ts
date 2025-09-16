@@ -1,9 +1,10 @@
 // Create: src/app/api/setup-webhook/route.ts
-// Manual webhook subscription setup
+// Manual webhook subscription setup with token refresh
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { GraphService } from '@/lib/microsoftGraph';
+import { getValidAccessToken } from '@/lib/tokenRefresh';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,8 +30,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create webhook subscription
-    const graphService = new GraphService(emailAccount.access_token);
+    // Get a valid access token (will refresh if needed)
+    let accessToken;
+    try {
+      accessToken = await getValidAccessToken(emailAccount.id);
+    } catch (tokenError) {
+      return NextResponse.json(
+        { 
+          error: 'Token refresh failed',
+          message: 'Client needs to re-authenticate. Please remove and re-add the client.',
+          details: tokenError instanceof Error ? tokenError.message : 'Unknown token error'
+        },
+        { status: 401 }
+      );
+    }
+
+    // Create webhook subscription with fresh token
+    const graphService = new GraphService(accessToken);
     const webhookUrl = `${process.env.WEBHOOK_BASE_URL}/api/webhooks/email-received`;
     const clientState = `email-agent-${emailAccount.email_address}-${Date.now()}`;
 
@@ -57,7 +73,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       message: 'Webhook subscription created successfully',
       subscription: subscription,
-      webhookUrl: webhookUrl
+      webhookUrl: webhookUrl,
+      expiresAt: subscription.expirationDateTime
     });
 
   } catch (error) {
