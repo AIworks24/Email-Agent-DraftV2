@@ -182,7 +182,7 @@ async function processEmailNotification(notification: any) {
       return;
     }
 
-    // Log the email in database - match your actual table structure
+    // Log the email in database - use allowed status value
     const { data: emailLog, error: logError } = await supabase
       .from('email_logs')
       .insert({
@@ -191,7 +191,7 @@ async function processEmailNotification(notification: any) {
         subject: emailDetails.subject || '',
         sender_email: extractEmailAddress(emailDetails.from),
         original_body: sanitizeEmailContent(emailDetails.body?.content || ''),
-        status: 'received',
+        status: 'pending',
         tokens_used: 0
       })
       .select()
@@ -327,7 +327,7 @@ async function generateAndCreateDraftReply(
       await supabase
         .from('email_logs')
         .update({
-          status: 'manual_review_required',
+          status: 'skipped',
           ai_response: 'Auto-response disabled - requires manual review'
         })
         .eq('id', emailLogId);
@@ -387,16 +387,7 @@ async function generateAndCreateDraftReply(
       .update({
         ai_response: aiResponse,
         status: 'draft_created',
-        tokens_used: estimateTokens(aiResponse),
-        metadata: {
-          clientSettings: {
-            writingStyle: clientTemplate.writingStyle,
-            tone: clientTemplate.tone,
-            autoResponse: clientTemplate.autoResponse,
-            responseDelay: clientTemplate.responseDelay
-          },
-          draftId: draftReply?.id
-        }
+        tokens_used: estimateTokens(aiResponse)
       })
       .eq('id', emailLogId);
 
