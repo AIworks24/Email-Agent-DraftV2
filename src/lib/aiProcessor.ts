@@ -1,4 +1,5 @@
-// lib/aiProcessor.ts
+// Fixed: src/lib/aiProcessor.ts
+// Update model name to current Claude model
 export interface EmailContext {
   subject: string;
   fromEmail: string;
@@ -42,7 +43,7 @@ export class AIEmailProcessor {
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: 'claude-3-sonnet-20240229',
+          model: 'claude-3-5-sonnet-20241022', // Updated model name
           max_tokens: 1500,
           temperature: 0.3,
           messages: [
@@ -78,7 +79,7 @@ export class AIEmailProcessor {
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: 'claude-3-sonnet-20240229',
+          model: 'claude-3-5-sonnet-20241022', // Updated model name
           max_tokens: 2000,
           temperature: 0.3,
           messages: [
@@ -202,7 +203,7 @@ Return only valid JSON.`;
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: 'claude-3-sonnet-20240229',
+          model: 'claude-3-5-sonnet-20241022', // Updated model name
           max_tokens: 500,
           temperature: 0.2,
           messages: [
