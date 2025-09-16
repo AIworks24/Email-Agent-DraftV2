@@ -119,6 +119,30 @@ export class AIEmailProcessor {
   }
 
   private buildPrompt(context: EmailContext): string {
+    // Format calendar availability in readable format
+    let calendarText = '';
+    if (context.calendarAvailability && context.calendarAvailability.length > 0) {
+      const events = context.calendarAvailability.map(event => {
+        const start = new Date(event.start?.dateTime || event.start?.date);
+        const end = new Date(event.end?.dateTime || event.end?.date);
+        const startStr = start.toLocaleDateString('en-US', { 
+          weekday: 'long', 
+          month: 'short', 
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZoneName: 'short'
+        });
+        const endStr = end.toLocaleTimeString('en-US', { 
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZoneName: 'short'
+        });
+        return `${event.subject || 'Busy'}: ${startStr} - ${endStr}`;
+      });
+      calendarText = `CALENDAR (Next 7 days - times in local timezone):\n${events.join('\n')}\n`;
+    }
+
     return `You are an AI email assistant helping to write professional email responses.
 
 INCOMING EMAIL:
@@ -133,7 +157,7 @@ CLIENT STYLE GUIDE:
 
 ${context.conversationHistory ? `CONVERSATION HISTORY:\n${context.conversationHistory}\n` : ''}
 
-${context.calendarAvailability ? `CALENDAR AVAILABILITY:\n${JSON.stringify(context.calendarAvailability, null, 2)}\n` : ''}
+${calendarText}
 
 Please write a professional email response that:
 1. Acknowledges the sender's message appropriately
@@ -141,8 +165,9 @@ Please write a professional email response that:
 3. Uses the specified writing style and tone
 4. Is helpful and actionable
 5. Maintains professional boundaries
+6. If mentioning availability, use natural language like "tomorrow afternoon" or "Wednesday morning" instead of specific UTC times
 
-Do not include a subject line. Return only the email body text.`;
+Write in paragraph format with proper spacing. Do not include a subject line. Return only the email body text.`;
   }
 
   private buildAnalysisPrompt(context: EmailContext): string {
@@ -176,14 +201,19 @@ Return only valid JSON.`;
     // Remove any subject line that might have been included
     formatted = formatted.replace(/^Subject:.*\n?/im, '').trim();
     
-    // Ensure proper paragraph spacing
-    formatted = formatted.replace(/\n{3,}/g, '\n\n');
+    // Convert to proper HTML formatting for email
+    formatted = formatted
+      .split('\n\n') // Split on double newlines (paragraphs)
+      .map(paragraph => paragraph.trim())
+      .filter(paragraph => paragraph.length > 0)
+      .map(paragraph => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
+      .join('\n');
     
-    // Add signature if not already present
+    // Add signature with proper formatting
     if (!formatted.toLowerCase().includes('best regards') && 
-        !formatted.toLowerCase().includes('sincerely') &&
-        !formatted.toLowerCase().includes(signature.toLowerCase())) {
-      formatted += `\n\n${signature}`;
+        !formatted.toLowerCase().includes('sincerely')) {
+      const formattedSignature = signature.replace(/\n/g, '<br>');
+      formatted += `\n\n<p>${formattedSignature}</p>`;
     }
     
     return formatted;

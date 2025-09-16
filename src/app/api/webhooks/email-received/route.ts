@@ -371,14 +371,14 @@ async function generateAndCreateDraftReply(
 
     console.log('AI response generated using client preferences');
 
-    // Create draft reply in Outlook
+    // Create draft reply in Outlook with proper threading
     const draftReply = await graphService.createDraftReply(
       emailDetails.id,
       aiResponse,
-      false // set to true for reply-all if needed
+      false // Reply to sender only, not reply-all
     );
 
-    console.log('Draft reply created:', draftReply?.id);
+    console.log('Draft reply created with threading:', draftReply?.id);
 
     // Log successful processing
     await supabase

@@ -109,10 +109,12 @@ export default function ClientDashboard() {
   const fetchEmailLogs = async () => {
     try {
       setRefreshing(true);
-      const response = await fetch('/api/email-logs');
+      const response = await fetch('/api/email-logs?' + new Date().getTime()); // Cache bust
       if (response.ok) {
         const data = await response.json();
         setEmailLogs((data?.logs as EmailLog[]) || []);
+      } else {
+        console.error('Failed to fetch email logs:', response.status);
       }
     } catch (error) {
       console.error('Error fetching email logs:', error);
