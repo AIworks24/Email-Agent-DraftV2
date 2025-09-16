@@ -161,17 +161,32 @@ async function processEmailNotification(notification: any) {
       return;
     }
 
-    // Check if we've already processed this email
-    const { data: existingLog } = await supabase
+    // Atomic check and insert to prevent duplicates
+    const { data: emailLog, error: logError } = await supabase
       .from('email_logs')
-      .select('id')
-      .eq('message_id', messageId)
+      .insert({
+        email_account_id: emailAccount.id,
+        message_id: messageId,
+        subject: 'Processing...',
+        sender_email: 'processing@temp.com',
+        original_body: 'Processing email...',
+        status: 'pending',
+        tokens_used: 0
+      })
+      .select()
       .single();
 
-    if (existingLog) {
-      console.log('Email already processed:', messageId);
+    if (logError) {
+      // If insert fails due to duplicate, exit silently
+      if (logError.code === '23505') { // Unique constraint violation
+        console.log('Email already being processed:', messageId);
+        return;
+      }
+      console.error('Failed to log email:', logError);
       return;
     }
+
+    console.log('Email processing started:', messageId);
 
     // Get email details using Microsoft Graph with token refresh
     let graphService;
@@ -189,28 +204,24 @@ async function processEmailNotification(notification: any) {
 
     if (!emailDetails) {
       console.error('Failed to fetch email details for:', messageId);
+      // Update the placeholder record with error
+      await supabase
+        .from('email_logs')
+        .update({ status: 'error', ai_response: 'Failed to fetch email details' })
+        .eq('id', emailLog.id);
       return;
     }
 
-    // Log the email in database - use allowed status value
-    const { data: emailLog, error: logError } = await supabase
+    // Update with actual email details
+    await supabase
       .from('email_logs')
-      .insert({
-        email_account_id: emailAccount.id,
-        message_id: messageId,
+      .update({
         subject: emailDetails.subject || '',
         sender_email: extractEmailAddress(emailDetails.from),
         original_body: sanitizeEmailContent(emailDetails.body?.content || ''),
-        status: 'pending',
-        tokens_used: 0
+        status: 'pending'
       })
-      .select()
-      .single();
-
-    if (logError) {
-      console.error('Failed to log email:', logError);
-      return;
-    }
+      .eq('id', emailLog.id);
 
     // Generate AI response and create draft (only if API key is available)
     if (anthropicApiKey) {

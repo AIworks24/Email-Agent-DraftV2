@@ -14,30 +14,56 @@ export async function PUT(
     const clientId = params.id;
     const settings = await request.json();
 
-    const { data, error } = await supabase
+    // First, check if template exists
+    const { data: existing } = await supabase
       .from('email_templates')
-      .upsert({
-        client_id: clientId,
-        name: 'Default Template',
-        writing_style: settings.writingStyle,
-        tone: settings.tone,
-        signature: settings.signature || '',
-        sample_emails: settings.sampleEmails || [],
-        is_default: true,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'client_id,name'
-      })
-      .select()
+      .select('id')
+      .eq('client_id', clientId)
       .single();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    let result;
+    if (existing) {
+      // Update existing
+      result = await supabase
+        .from('email_templates')
+        .update({
+          writing_style: settings.writingStyle,
+          tone: settings.tone,
+          signature: settings.signature || '',
+          sample_emails: settings.sampleEmails || [],
+          updated_at: new Date().toISOString()
+        })
+        .eq('client_id', clientId)
+        .select()
+        .single();
+    } else {
+      // Insert new
+      result = await supabase
+        .from('email_templates')
+        .insert({
+          client_id: clientId,
+          name: 'Default Template',
+          writing_style: settings.writingStyle,
+          tone: settings.tone,
+          signature: settings.signature || '',
+          sample_emails: settings.sampleEmails || [],
+          is_default: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+    }
+
+    if (result.error) {
+      console.error('Database error:', result.error);
+      return NextResponse.json({ error: result.error.message }, { status: 500 });
     }
 
     return NextResponse.json({ message: 'Settings saved successfully' });
 
   } catch (error) {
+    console.error('Settings save error:', error);
     return NextResponse.json({ error: 'Failed to save settings' }, { status: 500 });
   }
 }
@@ -53,7 +79,6 @@ export async function GET(
       .from('email_templates')
       .select('*')
       .eq('client_id', clientId)
-      .eq('name', 'Default Template')
       .single();
 
     const settings = {

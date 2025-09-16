@@ -1,4 +1,4 @@
-// lib/microsoftGraph.ts
+// Fixed: src/lib/microsoftGraph.ts - Ensure proper reply threading
 import { Client } from '@microsoft/microsoft-graph-client';
 import { AuthenticationProvider } from '@microsoft/microsoft-graph-client';
 
@@ -16,6 +16,42 @@ export class GraphService {
   constructor(accessToken: string) {
     const authProvider = new CustomAuthProvider(accessToken);
     this.client = Client.initWithMiddleware({ authProvider });
+  }
+
+  /**
+   * Create a draft reply to an email with proper threading
+   */
+  async createDraftReply(messageId: string, replyContent: string, replyAll: boolean = false) {
+    try {
+      console.log('Creating threaded draft reply for message:', messageId);
+      
+      // First, create the reply draft using Microsoft Graph
+      const endpoint = replyAll 
+        ? `/me/messages/${messageId}/createReplyAll` 
+        : `/me/messages/${messageId}/createReply`;
+      
+      const draft = await this.client
+        .api(endpoint)
+        .post({});
+
+      console.log('Draft created with ID:', draft.id);
+
+      // Update the draft with our AI-generated content
+      const updatedDraft = await this.client
+        .api(`/me/messages/${draft.id}`)
+        .patch({
+          body: {
+            contentType: 'HTML',
+            content: replyContent
+          }
+        });
+
+      console.log('Draft updated with AI content');
+      return updatedDraft;
+    } catch (error) {
+      console.error('Error creating draft reply:', error);
+      throw error;
+    }
   }
 
   /**
@@ -73,6 +109,33 @@ export class GraphService {
   }
 
   /**
+   * Get calendar events with timezone conversion
+   */
+  async getCalendarEvents(startTime: string, endTime: string) {
+    try {
+      // Get user's timezone first
+      const profile = await this.client
+        .api('/me/mailboxSettings')
+        .get();
+      
+      const userTimezone = profile.timeZone || 'UTC';
+      
+      const events = await this.client
+        .api('/me/events')
+        .filter(`start/dateTime ge '${startTime}' and end/dateTime le '${endTime}'`)
+        .select('subject,start,end,location,attendees')
+        .header('Prefer', `outlook.timezone="${userTimezone}"`)
+        .orderby('start/dateTime')
+        .get();
+
+      return events;
+    } catch (error) {
+      console.error('Error fetching calendar events:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Renew an existing subscription
    */
   async renewSubscription(subscriptionId: string) {
@@ -105,93 +168,6 @@ export class GraphService {
   }
 
   /**
-   * Create a draft reply to an email
-   */
-  async createDraftReply(messageId: string, replyContent: string, replyAll: boolean = false) {
-    try {
-      const endpoint = replyAll 
-        ? `/me/messages/${messageId}/createReplyAll` 
-        : `/me/messages/${messageId}/createReply`;
-      
-      const draft = await this.client
-        .api(endpoint)
-        .post({});
-
-      // Update the draft with our content
-      return await this.client
-        .api(`/me/messages/${draft.id}`)
-        .patch({
-          body: {
-            contentType: 'HTML',
-            content: replyContent
-          }
-        });
-    } catch (error) {
-      console.error('Error creating draft reply:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Send a reply to an email
-   */
-  async sendReply(messageId: string, replyContent: string, replyAll: boolean = false) {
-    try {
-      const endpoint = replyAll 
-        ? `/me/messages/${messageId}/replyAll` 
-        : `/me/messages/${messageId}/reply`;
-      
-      const replyData = {
-        message: {
-          body: {
-            contentType: 'HTML',
-            content: replyContent
-          }
-        }
-      };
-
-      return await this.client
-        .api(endpoint)
-        .post(replyData);
-    } catch (error) {
-      console.error('Error sending reply:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Create and send a new email
-   */
-  async sendEmail(toRecipients: string[], subject: string, body: string, ccRecipients?: string[]) {
-    try {
-      const message = {
-        subject: subject,
-        body: {
-          contentType: 'HTML',
-          content: body
-        },
-        toRecipients: toRecipients.map(email => ({
-          emailAddress: {
-            address: email
-          }
-        })),
-        ccRecipients: ccRecipients?.map(email => ({
-          emailAddress: {
-            address: email
-          }
-        })) || []
-      };
-
-      return await this.client
-        .api('/me/sendMail')
-        .post({ message });
-    } catch (error) {
-      console.error('Error sending email:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Get user profile information
    */
   async getUserProfile() {
@@ -202,125 +178,6 @@ export class GraphService {
         .get();
     } catch (error) {
       console.error('Error fetching user profile:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Mark email as read
-   */
-  async markAsRead(messageId: string) {
-    try {
-      return await this.client
-        .api(`/me/messages/${messageId}`)
-        .patch({
-          isRead: true
-        });
-    } catch (error) {
-      console.error('Error marking email as read:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Move email to a folder
-   */
-  async moveToFolder(messageId: string, folderId: string) {
-    try {
-      return await this.client
-        .api(`/me/messages/${messageId}/move`)
-        .post({
-          destinationId: folderId
-        });
-    } catch (error) {
-      console.error('Error moving email to folder:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get mail folders
-   */
-  async getMailFolders() {
-    try {
-      return await this.client
-        .api('/me/mailFolders')
-        .select('id,displayName,parentFolderId,childFolderCount')
-        .get();
-    } catch (error) {
-      console.error('Error fetching mail folders:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Create a new mail folder
-   */
-  async createMailFolder(displayName: string, parentFolderId?: string) {
-    try {
-      const folderData = {
-        displayName: displayName
-      };
-
-      const endpoint = parentFolderId 
-        ? `/me/mailFolders/${parentFolderId}/childFolders`
-        : '/me/mailFolders';
-
-      return await this.client
-        .api(endpoint)
-        .post(folderData);
-    } catch (error) {
-      console.error('Error creating mail folder:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Search emails
-   */
-  async searchEmails(query: string, top: number = 25) {
-    try {
-      return await this.client
-        .api('/me/messages')
-        .filter(`contains(subject,'${query}') or contains(body/content,'${query}')`)
-        .top(top)
-        .select('id,subject,from,receivedDateTime,isRead')
-        .orderby('receivedDateTime DESC')
-        .get();
-    } catch (error) {
-      console.error('Error searching emails:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get conversation thread
-   */
-  async getConversation(conversationId: string) {
-    try {
-      return await this.client
-        .api(`/me/conversations/${conversationId}`)
-        .expand('threads($expand=posts)')
-        .get();
-    } catch (error) {
-      console.error('Error fetching conversation:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get calendar events
-   */
-  async getCalendarEvents(startTime: string, endTime: string) {
-    try {
-      return await this.client
-        .api('/me/events')
-        .filter(`start/dateTime ge '${startTime}' and end/dateTime le '${endTime}'`)
-        .select('subject,start,end,location,attendees')
-        .orderby('start/dateTime')
-        .get();
-    } catch (error) {
-      console.error('Error fetching calendar events:', error);
       throw error;
     }
   }
