@@ -1,21 +1,22 @@
+// Fixed: src/app/api/webhooks/email-received/route.ts
+// Proper Microsoft Graph webhook validation
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { GraphService } from '@/lib/microsoftGraph';
 import { AIEmailProcessor, EmailContext } from '@/lib/aiProcessor';
 import { extractEmailAddress, sanitizeEmailContent, estimateTokens } from '@/lib/utils';
 
-// Safe environment variable access - don't throw during build
+// Safe environment variable access
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
 
-// Only create Supabase client if env vars are available
 const supabase = (supabaseUrl && supabaseServiceKey)
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
 export async function POST(request: NextRequest) {
-  // Return error if not properly configured
   if (!supabase) {
     return NextResponse.json(
       {
@@ -27,7 +28,23 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    console.log('Webhook received - processing email notifications');
+    // Check if this is a validation request
+    const url = new URL(request.url);
+    const validationToken = url.searchParams.get('validationToken');
+    
+    if (validationToken) {
+      console.log('Webhook validation request received');
+      // Microsoft Graph validation - must return the token as plain text with 200 status
+      return new NextResponse(validationToken, {
+        status: 200,
+        headers: { 
+          'Content-Type': 'text/plain',
+          'Content-Length': validationToken.length.toString()
+        }
+      });
+    }
+
+    console.log('Webhook notification received - processing email notifications');
 
     const body = await request.json();
     const notifications = body.value;
@@ -61,15 +78,18 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Handle Microsoft Graph webhook validation
+    // Handle Microsoft Graph webhook validation via GET as well
     const { searchParams } = new URL(request.url);
     const validationToken = searchParams.get('validationToken');
 
     if (validationToken) {
-      console.log('Webhook validation requested');
+      console.log('Webhook validation via GET requested');
       return new NextResponse(validationToken, {
         status: 200,
-        headers: { 'Content-Type': 'text/plain' }
+        headers: { 
+          'Content-Type': 'text/plain',
+          'Content-Length': validationToken.length.toString()
+        }
       });
     }
 
@@ -77,7 +97,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       status: 'OK',
       endpoint: 'email-webhook',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      message: 'Webhook endpoint is ready to receive notifications'
     });
   } catch (error) {
     console.error('Webhook GET error:', error);
@@ -212,10 +233,6 @@ async function processEmailNotification(notification: any) {
   }
 }
 
-/**
- * NEW: Get client template merged with per-client settings (and template fallback).
- * Returns the shape your AI processor expects.
- */
 async function getClientTemplate(clientId: string) {
   try {
     if (!supabase) return null;
@@ -237,7 +254,7 @@ async function getClientTemplate(clientId: string) {
       .from('email_templates')
       .select('*')
       .eq('client_id', clientId)
-      .eq('is_default', true)
+      .eq('name', 'Default Template')
       .single();
 
     // Return template in the format your existing aiProcessor expects
@@ -258,8 +275,8 @@ async function getClientTemplate(clientId: string) {
         client?.settings?.sampleEmails ||
         template?.sample_emails ||
         [],
-      autoResponse: client?.settings?.autoResponse !== false,
-      responseDelay: client?.settings?.responseDelay || 5
+      autoResponse: template?.auto_response !== false,
+      responseDelay: template?.response_delay || 0
     };
   } catch (error) {
     console.error('Error getting client template:', error);
@@ -269,15 +286,11 @@ async function getClientTemplate(clientId: string) {
       signature: 'Best regards',
       sampleEmails: [],
       autoResponse: true,
-      responseDelay: 5
+      responseDelay: 0
     };
   }
 }
 
-/**
- * UPDATED: Use getClientTemplate(), respect autoResponse + responseDelay,
- * add metadata logging, and keep calendar availability context.
- */
 async function generateAndCreateDraftReply(
   graphService: GraphService,
   emailDetails: any,
@@ -320,12 +333,12 @@ async function generateAndCreateDraftReply(
       return;
     }
 
-    // Apply response delay if configured (no queue yet; log only)
+    // Apply response delay if configured
     if (clientTemplate.responseDelay > 0) {
       console.log(
         `Response delayed by ${clientTemplate.responseDelay} minutes for client preferences`
       );
-      // Implement your queuing/delay mechanism here if desired
+      // For now, just log - implement queue later if needed
     }
 
     // Get calendar availability for the next 7 days
