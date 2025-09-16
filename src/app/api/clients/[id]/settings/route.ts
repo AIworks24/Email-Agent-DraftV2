@@ -14,16 +14,17 @@ export async function PUT(
     const clientId = params.id;
     const settings = await request.json();
 
-    // First, check if template exists
+    // Check if template exists for this client
     const { data: existing } = await supabase
       .from('email_templates')
       .select('id')
       .eq('client_id', clientId)
+      .eq('name', 'Default Template')
       .single();
 
     let result;
     if (existing) {
-      // Update existing
+      // Update existing template
       result = await supabase
         .from('email_templates')
         .update({
@@ -31,13 +32,15 @@ export async function PUT(
           tone: settings.tone,
           signature: settings.signature || '',
           sample_emails: settings.sampleEmails || [],
+          auto_response: settings.autoResponse,
+          response_delay: settings.responseDelay || 0,
           updated_at: new Date().toISOString()
         })
-        .eq('client_id', clientId)
+        .eq('id', existing.id)
         .select()
         .single();
     } else {
-      // Insert new
+      // Insert new template - match your exact table structure
       result = await supabase
         .from('email_templates')
         .insert({
@@ -47,7 +50,9 @@ export async function PUT(
           tone: settings.tone,
           signature: settings.signature || '',
           sample_emails: settings.sampleEmails || [],
-          is_default: true,
+          is_active: true, // Your table has is_active, not is_default
+          auto_response: settings.autoResponse,
+          response_delay: settings.responseDelay || 0,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
@@ -57,14 +62,23 @@ export async function PUT(
 
     if (result.error) {
       console.error('Database error:', result.error);
-      return NextResponse.json({ error: result.error.message }, { status: 500 });
+      return NextResponse.json({ 
+        error: result.error.message,
+        details: result.error 
+      }, { status: 500 });
     }
 
-    return NextResponse.json({ message: 'Settings saved successfully' });
+    return NextResponse.json({ 
+      message: 'Settings saved successfully',
+      data: result.data 
+    });
 
   } catch (error) {
     console.error('Settings save error:', error);
-    return NextResponse.json({ error: 'Failed to save settings' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Failed to save settings',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }
 
@@ -79,6 +93,7 @@ export async function GET(
       .from('email_templates')
       .select('*')
       .eq('client_id', clientId)
+      .eq('name', 'Default Template')
       .single();
 
     const settings = {
@@ -86,12 +101,16 @@ export async function GET(
       tone: template?.tone || 'friendly',
       signature: template?.signature || '',
       sampleEmails: template?.sample_emails || [''],
-      autoResponse: true,
-      responseDelay: 0
+      autoResponse: template?.auto_response !== false,
+      responseDelay: template?.response_delay || 0
     };
 
     return NextResponse.json({ settings });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to load settings' }, { status: 500 });
+    console.error('Settings get error:', error);
+    return NextResponse.json({ 
+      error: 'Failed to load settings',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }
