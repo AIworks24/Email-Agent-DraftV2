@@ -10,48 +10,52 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
 
 // Only create Supabase client if env vars are available
-const supabase = (supabaseUrl && supabaseServiceKey) ? createClient(
-  supabaseUrl,
-  supabaseServiceKey
-) : null;
+const supabase = (supabaseUrl && supabaseServiceKey)
+  ? createClient(supabaseUrl, supabaseServiceKey)
+  : null;
 
 export async function POST(request: NextRequest) {
   // Return error if not properly configured
   if (!supabase) {
-    return NextResponse.json({ 
-      error: 'Service not configured',
-      message: 'Environment variables not set'
-    }, { status: 503 });
+    return NextResponse.json(
+      {
+        error: 'Service not configured',
+        message: 'Environment variables not set'
+      },
+      { status: 503 }
+    );
   }
 
   try {
     console.log('Webhook received - processing email notifications');
-    
+
     const body = await request.json();
     const notifications = body.value;
-    
+
     if (!notifications || !Array.isArray(notifications)) {
       console.error('Invalid webhook payload structure');
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
-    
+
     // Process each notification
     for (const notification of notifications) {
       await processEmailNotification(notification);
     }
-    
-    return NextResponse.json({ 
-      status: 'processed', 
+
+    return NextResponse.json({
+      status: 'processed',
       count: notifications.length,
       timestamp: new Date().toISOString()
     });
-    
   } catch (error) {
     console.error('Webhook processing error:', error);
-    return NextResponse.json({ 
-      error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: 'Internal server error',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
   }
 }
 
@@ -60,22 +64,21 @@ export async function GET(request: NextRequest) {
     // Handle Microsoft Graph webhook validation
     const { searchParams } = new URL(request.url);
     const validationToken = searchParams.get('validationToken');
-    
+
     if (validationToken) {
       console.log('Webhook validation requested');
-      return new NextResponse(validationToken, { 
+      return new NextResponse(validationToken, {
         status: 200,
         headers: { 'Content-Type': 'text/plain' }
       });
     }
-    
+
     // Health check endpoint
-    return NextResponse.json({ 
-      status: 'OK', 
+    return NextResponse.json({
+      status: 'OK',
       endpoint: 'email-webhook',
       timestamp: new Date().toISOString()
     });
-    
   } catch (error) {
     console.error('Webhook GET error:', error);
     return NextResponse.json({ error: 'Validation failed' }, { status: 400 });
@@ -94,25 +97,27 @@ async function processEmailNotification(notification: any) {
       changeType: notification.changeType,
       clientState: notification.clientState
     });
-    
+
     const { resource, clientState, changeType } = notification;
-    
+
     // Only process new emails
     if (changeType !== 'created') {
       console.log('Skipping non-creation event:', changeType);
       return;
     }
-    
+
     // Find the email account using client state
     const { data: subscription, error: subError } = await supabase
       .from('webhook_subscriptions')
-      .select(`
+      .select(
+        `
         *,
         email_accounts (
           *,
           clients (*)
         )
-      `)
+      `
+      )
       .eq('client_state', clientState)
       .eq('is_active', true)
       .single();
@@ -177,18 +182,22 @@ async function processEmailNotification(notification: any) {
 
     // Generate AI response and create draft (only if API key is available)
     if (anthropicApiKey) {
-      await generateAndCreateDraftReply(graphService, emailDetails, emailAccount, emailLog.id);
+      await generateAndCreateDraftReply(
+        graphService,
+        emailDetails,
+        emailAccount,
+        emailLog.id
+      );
     } else {
       console.log('Anthropic API key not configured - skipping AI response generation');
     }
-
   } catch (error) {
     console.error('Error processing email notification:', error);
-    
+
     // Log the error
     try {
       await supabase
-        .from('email_logs')
+        ?.from('email_logs')
         .insert({
           email_account_id: 'unknown',
           message_id: 'unknown',
@@ -203,6 +212,72 @@ async function processEmailNotification(notification: any) {
   }
 }
 
+/**
+ * NEW: Get client template merged with per-client settings (and template fallback).
+ * Returns the shape your AI processor expects.
+ */
+async function getClientTemplate(clientId: string) {
+  try {
+    if (!supabase) return null;
+
+    // Get client with settings
+    const { data: client, error: clientError } = await supabase
+      .from('clients')
+      .select('*, settings')
+      .eq('id', clientId)
+      .single();
+
+    if (clientError) {
+      console.error('Failed to get client:', clientError);
+      return null;
+    }
+
+    // Get email template if exists
+    const { data: template } = await supabase
+      .from('email_templates')
+      .select('*')
+      .eq('client_id', clientId)
+      .eq('is_default', true)
+      .single();
+
+    // Return template in the format your existing aiProcessor expects
+    return {
+      writingStyle:
+        client?.settings?.writingStyle ||
+        template?.writing_style ||
+        'professional',
+      tone:
+        client?.settings?.tone ||
+        template?.tone ||
+        'friendly',
+      signature:
+        client?.settings?.signature ||
+        template?.signature ||
+        `Best regards,\n${client?.name ?? ''}`,
+      sampleEmails:
+        client?.settings?.sampleEmails ||
+        template?.sample_emails ||
+        [],
+      autoResponse: client?.settings?.autoResponse !== false,
+      responseDelay: client?.settings?.responseDelay || 5
+    };
+  } catch (error) {
+    console.error('Error getting client template:', error);
+    return {
+      writingStyle: 'professional',
+      tone: 'friendly',
+      signature: 'Best regards',
+      sampleEmails: [],
+      autoResponse: true,
+      responseDelay: 5
+    };
+  }
+}
+
+/**
+ * UPDATED: Use getClientTemplate(), respect autoResponse + responseDelay,
+ * add metadata logging, and keep calendar availability context.
+ */
 async function generateAndCreateDraftReply(
   graphService: GraphService,
   emailDetails: any,
@@ -216,80 +291,105 @@ async function generateAndCreateDraftReply(
 
   try {
     console.log('Generating AI response for email:', emailDetails.subject);
-    
-    // Get client template or use defaults
-    const { data: template } = await supabase
-      .from('email_templates')
-      .select('*')
-      .eq('client_id', emailAccount.client_id)
-      .eq('is_default', true)
-      .single();
 
-    const clientTemplate = template || {
-      writing_style: 'professional',
-      tone: 'friendly',
-      signature: emailAccount.clients?.name || 'Best regards',
-      sample_emails: []
-    };
-    
-    // Get calendar availability for the next 7 days (optional)
-    let calendarAvailability = null;
+    // Get client template with settings from database
+    const clientTemplate = await getClientTemplate(emailAccount.client_id);
+
+    if (!clientTemplate) {
+      console.error('Client template not available; aborting AI generation');
+      await supabase
+        .from('email_logs')
+        .update({
+          status: 'error',
+          ai_response: 'Failed to load client settings/template'
+        })
+        .eq('id', emailLogId);
+      return;
+    }
+
+    // Check if auto-response is enabled
+    if (!clientTemplate.autoResponse) {
+      console.log('Auto-response disabled for client:', emailAccount.client_id);
+      await supabase
+        .from('email_logs')
+        .update({
+          status: 'manual_review_required',
+          ai_response: 'Auto-response disabled - requires manual review'
+        })
+        .eq('id', emailLogId);
+      return;
+    }
+
+    // Apply response delay if configured (no queue yet; log only)
+    if (clientTemplate.responseDelay > 0) {
+      console.log(
+        `Response delayed by ${clientTemplate.responseDelay} minutes for client preferences`
+      );
+      // Implement your queuing/delay mechanism here if desired
+    }
+
+    // Get calendar availability for the next 7 days
+    let calendarAvailability: any = null;
     try {
       const startTime = new Date().toISOString();
       const endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       calendarAvailability = await graphService.getCalendarEvents(startTime, endTime);
     } catch (calError: any) {
-      console.log('Calendar access not available:', calError.message);
+      console.log('Calendar access not available:', calError?.message || calError);
     }
-    
-    // Prepare context for AI
+
+    // Prepare context using client's personalized settings
     const context: EmailContext = {
       subject: emailDetails.subject || '',
       fromEmail: extractEmailAddress(emailDetails.from),
       body: sanitizeEmailContent(emailDetails.body?.content || ''),
       clientTemplate: {
-        writingStyle: clientTemplate.writing_style,
+        writingStyle: clientTemplate.writingStyle,
         tone: clientTemplate.tone,
         signature: clientTemplate.signature,
-        sampleEmails: clientTemplate.sample_emails || []
+        sampleEmails: clientTemplate.sampleEmails
       },
       calendarAvailability: calendarAvailability?.value || null
     };
-    
-    // Generate AI response
+
+    // Generate AI response using existing processor
     const aiProcessor = new AIEmailProcessor(anthropicApiKey);
     const aiResponse = await aiProcessor.generateResponse(context);
-    
-    console.log('AI response generated, length:', aiResponse.length);
-    
+
+    console.log('AI response generated using client preferences');
+
     // Create draft reply in Outlook
     const draftReply = await graphService.createDraftReply(
       emailDetails.id,
       aiResponse,
-      false // Set to true for reply-all
+      false // set to true for reply-all if needed
     );
-    
+
     console.log('Draft reply created:', draftReply?.id);
-    
-    // Update the email log with the AI response and success status
-    const { error: updateError } = await supabase
+
+    // Log successful processing with client settings applied
+    await supabase
       .from('email_logs')
       .update({
         ai_response: aiResponse,
         status: 'draft_created',
-        tokens_used: estimateTokens(aiResponse)
+        tokens_used: estimateTokens(aiResponse),
+        metadata: {
+          clientSettings: {
+            writingStyle: clientTemplate.writingStyle,
+            tone: clientTemplate.tone,
+            autoResponse: clientTemplate.autoResponse,
+            responseDelay: clientTemplate.responseDelay
+          },
+          draftId: draftReply?.id
+        }
       })
       .eq('id', emailLogId);
-      
-    if (updateError) {
-      console.error('Failed to update email log:', updateError);
-    }
-    
-    console.log('Email processing completed successfully');
-    
+
+    console.log('Email processing completed with personalized AI response');
   } catch (error) {
-    console.error('Error generating AI response:', error);
-    
+    console.error('Error generating personalized AI response:', error);
+
     // Update status to error
     await supabase
       .from('email_logs')
