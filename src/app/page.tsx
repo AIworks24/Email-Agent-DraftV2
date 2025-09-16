@@ -541,7 +541,8 @@ export default function ClientDashboard() {
           </div>
         )}
 
-        {/* Clients Tab */}
+        // Replace your entire Clients tab section with this simple, clean version:
+
         {activeTab === 'clients' && (
           <div style={cardStyle}>
             <div style={{
@@ -550,15 +551,25 @@ export default function ClientDashboard() {
               alignItems: 'center',
               marginBottom: '24px'
             }}>
-              <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '600' }}>
+              <h2 style={{ 
+                margin: 0, 
+                fontSize: '20px', 
+                fontWeight: '600',
+                color: '#111827'
+              }}>
                 Client Management
               </h2>
               <button 
                 onClick={initiateClientRegistration}
                 style={{
-                  ...buttonStyle,
+                  padding: '8px 16px',
                   backgroundColor: '#3b82f6',
-                  color: 'white'
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: 'pointer'
                 }}>
                 + Add New Client
               </button>
@@ -568,91 +579,76 @@ export default function ClientDashboard() {
               <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
                 Loading clients...
               </div>
-            ) : error ? (
-              <div style={{
-                textAlign: 'center',
-                padding: '40px',
-                color: '#dc2626',
-                backgroundColor: '#fef2f2',
-                borderRadius: '8px',
-                border: '1px solid #fecaca'
-              }}>
-                <div style={{ fontSize: '16px', marginBottom: '8px' }}>⚠️ Error Loading Clients</div>
-                <div style={{ fontSize: '14px', marginBottom: '16px' }}>{error}</div>
-                <button
-                  onClick={loadDashboardData}
-                  style={{
-                    ...buttonStyle,
-                    backgroundColor: '#dc2626',
-                    color: 'white'
-                  }}
-                >
-                  Retry
-                </button>
-              </div>
             ) : clients.length === 0 ? (
               <div style={{
                 textAlign: 'center',
-                padding: '60px',
+                padding: '40px',
                 backgroundColor: '#f9fafb',
                 borderRadius: '8px',
-                border: '2px dashed #d1d5db'
+                border: '1px solid #e5e7eb'
               }}>
-                <div style={{ fontSize: '48px', marginBottom: '16px' }}>👥</div>
-                <div style={{ fontSize: '18px', marginBottom: '8px', color: '#374151' }}>
-                  No Clients Yet
-                </div>
-                <div style={{ fontSize: '14px', color: '#6b7280', marginBottom: '24px' }}>
-                  Add your first client to start automating email responses.
-                </div>
-                <button style={{
-                  ...buttonStyle,
-                  backgroundColor: '#3b82f6',
-                  color: 'white'
-                }}>
-                  Add Your First Client
-                </button>
+                <p style={{ color: '#6b7280', margin: 0 }}>No clients added yet</p>
               </div>
             ) : (
-              <div style={{ display: 'grid', gap: '16px' }}>
+              <div>
                 {clients.map((client) => (
                   <div key={client.id} style={{
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     padding: '16px',
+                    marginBottom: '12px',
                     border: '1px solid #e5e7eb',
                     borderRadius: '8px',
                     backgroundColor: 'white'
                   }}>
                     <div>
-                      <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                      <div style={{ 
+                        fontWeight: '600', 
+                        fontSize: '16px',
+                        color: '#111827',
+                        marginBottom: '4px'
+                      }}>
                         {client.name}
                       </div>
-                      <div style={{ fontSize: '14px', color: '#6b7280', marginBottom: '4px' }}>
+                      <div style={{ 
+                        fontSize: '14px', 
+                        color: '#6b7280',
+                        marginBottom: '2px'
+                      }}>
                         {client.email}
                       </div>
-                      <div style={{ fontSize: '12px', color: '#9ca3af' }}>
-                        {client.stats?.totalEmails || 0} emails processed
+                      <div style={{ 
+                        fontSize: '12px', 
+                        color: '#9ca3af' 
+                      }}>
+                        {client.emails_processed || 0} emails processed
                       </div>
                     </div>
+                    
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <span style={{
                         padding: '4px 8px',
-                        borderRadius: '4px',
+                        borderRadius: '12px',
                         fontSize: '12px',
                         fontWeight: '500',
-                        backgroundColor: client.status === 'active' ? '#dcfce7' : '#fef3c7',
-                        color: client.status === 'active' ? '#16a34a' : '#d97706'
+                        backgroundColor: client.status === 'active' ? '#dcfce7' : '#f3f4f6',
+                        color: client.status === 'active' ? '#16a34a' : '#6b7280'
                       }}>
                         {client.status}
                       </span>
 
-                      {/* Updated Manage button to use the handler (Tailwind classes per your snippet) */}
                       <button
                         onClick={() => handleManageClient(client)}
-                        className="text-blue-600 hover:text-blue-900 font-medium"
-                        style={{ padding: '8px 12px', background: 'transparent', border: '1px solid #e5e7eb', borderRadius: 6 }}
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: 'transparent',
+                          color: '#3b82f6',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '4px',
+                          fontSize: '14px',
+                          cursor: 'pointer'
+                        }}
                       >
                         Manage
                       </button>
