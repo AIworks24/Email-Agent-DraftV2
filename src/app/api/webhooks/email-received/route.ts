@@ -182,16 +182,17 @@ async function processEmailNotification(notification: any) {
       return;
     }
 
-    // Log the email in database
+    // Log the email in database - match your actual table structure
     const { data: emailLog, error: logError } = await supabase
       .from('email_logs')
       .insert({
         email_account_id: emailAccount.id,
         message_id: messageId,
         subject: emailDetails.subject || '',
-        from_email: extractEmailAddress(emailDetails.from),
-        body: sanitizeEmailContent(emailDetails.body?.content || ''),
-        status: 'received'
+        sender_email: extractEmailAddress(emailDetails.from),
+        original_body: sanitizeEmailContent(emailDetails.body?.content || ''),
+        status: 'received',
+        tokens_used: 0
       })
       .select()
       .single();
