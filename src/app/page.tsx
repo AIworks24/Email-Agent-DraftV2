@@ -157,10 +157,32 @@ export default function ClientDashboard() {
     signature: '',
     sampleEmails: [''],
     autoResponse: true,
-    responseDelay: 5
+    responseDelay: 0 // Changed to 0 for immediate responses
   });
 
-  // Handlers for Manage modal
+  // Add webhook setup function
+  const setupWebhookForClient = async (client: Client) => {
+    try {
+      const response = await fetch('/api/setup-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id })
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        alert(`Webhook setup successful for ${client.name}!\n\nSubscription ID: ${result.subscription?.id}\nWebhook URL: ${result.webhookUrl}`);
+        // Refresh clients to show updated status
+        loadDashboardData();
+      } else {
+        alert(`Webhook setup failed: ${result.error}\n\nDetails: ${result.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Webhook setup error:', error);
+      alert(`Failed to setup webhook: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
   const handleManageClient = (client: Client) => {
     console.log('Managing client:', client);
     setSelectedClient(client);
@@ -171,7 +193,7 @@ export default function ClientDashboard() {
       signature: client.settings?.signature || `Best regards,\n${client.name}`,
       sampleEmails: client.settings?.sampleEmails || [''],
       autoResponse: client.settings?.autoResponse !== false,
-      responseDelay: client.settings?.responseDelay ?? 5
+      responseDelay: client.settings?.responseDelay ?? 0 // Changed to 0
     });
     
     setShowManageModal(true);
@@ -747,6 +769,23 @@ export default function ClientDashboard() {
                       </span>
 
                       <button
+                        onClick={() => setupWebhookForClient(client)}
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: '#059669',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          fontWeight: '500'
+                        }}
+                        title="Setup email webhook for this client"
+                      >
+                        Setup Webhook
+                      </button>
+
+                      <button
                         onClick={() => handleManageClient(client)}
                         style={{
                           padding: '6px 12px',
@@ -1106,7 +1145,7 @@ ${envStatus?.WEBHOOK_BASE_URL ? '✓' : '❌'} WEBHOOK_BASE_URL: ${envStatus?.WE
                         <input
                           type="number"
                           min="0"
-                          max="60"
+                          max="30"
                           value={clientSettings.responseDelay}
                           onChange={(e) => setClientSettings({...clientSettings, responseDelay: parseInt(e.target.value)})}
                           style={inputStyle}
@@ -1116,7 +1155,7 @@ ${envStatus?.WEBHOOK_BASE_URL ? '✓' : '❌'} WEBHOOK_BASE_URL: ${envStatus?.WE
                           color: '#6b7280',
                           margin: '4px 0 0 0'
                         }}>
-                          Wait time before creating draft response
+                          Wait time in minutes (0 = immediate response)
                         </p>
                       </div>
                       <div style={{
