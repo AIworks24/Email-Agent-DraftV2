@@ -1,4 +1,6 @@
-// Fixed: src/lib/microsoftGraph.ts - Ensure proper reply threading
+// Enhanced: src/lib/microsoftGraph.ts 
+// Fixed threading and signature handling
+
 import { Client } from '@microsoft/microsoft-graph-client';
 import { AuthenticationProvider } from '@microsoft/microsoft-graph-client';
 
@@ -19,13 +21,17 @@ export class GraphService {
   }
 
   /**
-   * Create a draft reply to an email with proper threading
+   * Create a draft reply to an email with proper threading and signature
    */
-  async createDraftReply(messageId: string, replyContent: string, replyAll: boolean = false) {
+  async createDraftReply(messageId: string, replyContent: string, signature: string, replyAll: boolean = false) {
     try {
       console.log('Creating threaded draft reply for message:', messageId);
       
-      // First, create the reply draft using Microsoft Graph
+      // First, get the original message to understand the thread
+      const originalMessage = await this.getEmailDetails(messageId);
+      console.log('Original message subject:', originalMessage?.subject);
+      
+      // Create the reply draft using Microsoft Graph
       const endpoint = replyAll 
         ? `/me/messages/${messageId}/createReplyAll` 
         : `/me/messages/${messageId}/createReply`;
@@ -36,22 +42,89 @@ export class GraphService {
 
       console.log('Draft created with ID:', draft.id);
 
-      // Update the draft with our AI-generated content
+      // Prepare the complete email body with signature
+      const completeEmailBody = this.buildCompleteEmailBody(replyContent, signature, originalMessage);
+
+      // Update the draft with our AI-generated content and proper signature
       const updatedDraft = await this.client
         .api(`/me/messages/${draft.id}`)
         .patch({
           body: {
             contentType: 'HTML',
-            content: replyContent
+            content: completeEmailBody
           }
         });
 
-      console.log('Draft updated with AI content');
+      console.log('Draft updated with AI content and signature');
       return updatedDraft;
     } catch (error) {
       console.error('Error creating draft reply:', error);
       throw error;
     }
+  }
+
+  /**
+   * Build complete email body with signature and threading context
+   */
+  private buildCompleteEmailBody(aiResponse: string, signature: string, originalMessage?: any): string {
+    let emailBody = aiResponse;
+    
+    // Add signature if provided and not already present
+    if (signature && signature.trim()) {
+      const formattedSignature = signature.replace(/\n/g, '<br>');
+      emailBody += `<br><br><p>${formattedSignature}</p>`;
+    }
+    
+    // Add the original message as context (this creates proper threading)
+    if (originalMessage) {
+      const originalSender = originalMessage.from?.emailAddress?.address || 'Unknown Sender';
+      const originalDate = new Date(originalMessage.receivedDateTime).toLocaleString();
+      const originalSubject = originalMessage.subject || 'No Subject';
+      
+      // Clean the original body content
+      let originalBody = originalMessage.body?.content || '';
+      originalBody = this.cleanHtmlContent(originalBody);
+      
+      // Add the original message thread
+      emailBody += `
+        <br><br>
+        <hr>
+        <div style="font-size: 12px; color: #666;">
+          <p><strong>From:</strong> ${originalSender}</p>
+          <p><strong>Sent:</strong> ${originalDate}</p>
+          <p><strong>Subject:</strong> ${originalSubject}</p>
+        </div>
+        <br>
+        <div style="border-left: 2px solid #ccc; padding-left: 10px; margin-left: 10px;">
+          ${originalBody}
+        </div>
+      `;
+    }
+    
+    return emailBody;
+  }
+
+  /**
+   * Clean HTML content for threading display
+   */
+  private cleanHtmlContent(htmlContent: string): string {
+    if (!htmlContent) return '';
+    
+    // Remove excessive styling but keep basic formatting
+    let cleaned = htmlContent
+      .replace(/<style[^>]*>.*?<\/style>/gi, '') // Remove style tags
+      .replace(/<script[^>]*>.*?<\/script>/gi, '') // Remove script tags
+      .replace(/style\s*=\s*"[^"]*"/gi, '') // Remove inline styles
+      .replace(/class\s*=\s*"[^"]*"/gi, '') // Remove classes
+      .replace(/<font[^>]*>/gi, '') // Remove font tags
+      .replace(/<\/font>/gi, '');
+    
+    // Truncate if too long to avoid overwhelming the reply
+    if (cleaned.length > 2000) {
+      cleaned = cleaned.substring(0, 2000) + '...<br><em>[Message truncated]</em>';
+    }
+    
+    return cleaned;
   }
 
   /**
@@ -83,6 +156,26 @@ export class GraphService {
     } catch (error) {
       console.error('Error fetching email details:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Get conversation thread messages
+   */
+  async getConversationThread(conversationId: string) {
+    try {
+      const messages = await this.client
+        .api('/me/messages')
+        .filter(`conversationId eq '${conversationId}'`)
+        .select('id,subject,from,body,receivedDateTime,conversationId')
+        .orderby('receivedDateTime DESC')
+        .top(10) // Limit to last 10 messages in thread
+        .get();
+
+      return messages.value || [];
+    } catch (error) {
+      console.error('Error fetching conversation thread:', error);
+      return [];
     }
   }
 
@@ -179,6 +272,19 @@ export class GraphService {
     } catch (error) {
       console.error('Error fetching user profile:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Test token validity
+   */
+  async testTokenValidity(): Promise<boolean> {
+    try {
+      await this.client.api('/me').get();
+      return true;
+    } catch (error) {
+      console.error('Token validation failed:', error);
+      return false;
     }
   }
 }

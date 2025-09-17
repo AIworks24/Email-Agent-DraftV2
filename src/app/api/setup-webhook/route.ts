@@ -1,10 +1,10 @@
 // Enhanced: src/app/api/setup-webhook/route.ts
-// Automatic webhook subscription setup with self-renewal capability
+// Better handling of missing refresh tokens and robust error recovery
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { GraphService } from '@/lib/microsoftGraph';
-import { getValidAccessToken } from '@/lib/tokenRefresh';
+import { getValidAccessToken, refreshAllActiveTokens } from '@/lib/tokenRefresh';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,6 +14,7 @@ const supabase = createClient(
 export async function POST(request: NextRequest) {
   try {
     const { clientId } = await request.json();
+    console.log('Setting up webhook for client:', clientId);
 
     // Get client's email account
     const { data: emailAccount, error } = await supabase
@@ -24,10 +25,24 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error || !emailAccount) {
+      console.error('No email account found for client:', clientId);
       return NextResponse.json(
         { error: 'No active email account found for client' },
         { status: 404 }
       );
+    }
+
+    console.log('Email account found:', emailAccount.email_address);
+
+    // Check if refresh token is available
+    if (!emailAccount.refresh_token) {
+      console.warn('⚠️ No refresh token available for account:', emailAccount.email_address);
+      return NextResponse.json({
+        error: 'No refresh token available',
+        message: 'This client needs to re-authenticate to enable automatic token refresh. The current access token will work until it expires (~1 hour).',
+        recommendation: 'Please remove and re-add this client to get a refresh token.',
+        canContinue: true
+      }, { status: 400 });
     }
 
     // Check if there's already an active subscription
@@ -44,6 +59,7 @@ export async function POST(request: NextRequest) {
       const tenMinsFromNow = new Date(Date.now() + 10 * 60 * 1000);
       
       if (expiresAt > tenMinsFromNow) {
+        console.log('Existing valid subscription found');
         return NextResponse.json({
           message: 'Webhook subscription already active',
           subscription: { id: existingSubscription.subscription_id },
@@ -54,6 +70,7 @@ export async function POST(request: NextRequest) {
       
       // Existing subscription is expiring soon, try to renew it
       try {
+        console.log('Attempting to renew expiring subscription...');
         const validToken = await getValidAccessToken(emailAccount.id);
         const graphService = new GraphService(validToken);
         
@@ -68,6 +85,7 @@ export async function POST(request: NextRequest) {
           })
           .eq('id', existingSubscription.id);
 
+        console.log('✅ Subscription renewed successfully');
         return NextResponse.json({
           message: 'Webhook subscription renewed successfully',
           subscription: renewedSub,
@@ -87,8 +105,11 @@ export async function POST(request: NextRequest) {
     // Create new subscription
     let accessToken;
     try {
+      console.log('Getting valid access token...');
       accessToken = await getValidAccessToken(emailAccount.id);
+      console.log('✅ Access token obtained');
     } catch (tokenError) {
+      console.error('❌ Token refresh failed:', tokenError);
       return NextResponse.json(
         { 
           error: 'Token refresh failed',
@@ -104,6 +125,7 @@ export async function POST(request: NextRequest) {
     const webhookUrl = `${process.env.WEBHOOK_BASE_URL}/api/webhooks/email-received`;
     const clientState = `email-agent-${emailAccount.email_address}-${Date.now()}`;
 
+    console.log('Creating new webhook subscription...');
     const subscription = await graphService.subscribeToEmails(webhookUrl, clientState);
 
     // Save subscription to database
@@ -124,6 +146,7 @@ export async function POST(request: NextRequest) {
       console.error('Failed to save subscription:', subError);
     }
 
+    console.log('✅ Webhook subscription created successfully');
     return NextResponse.json({
       message: 'Webhook subscription created successfully with automatic renewal',
       subscription: subscription,
@@ -133,7 +156,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Webhook setup error:', error);
+    console.error('❌ Webhook setup error:', error);
     return NextResponse.json(
       { 
         error: 'Failed to setup webhook',
@@ -144,10 +167,18 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Add GET endpoint to check and renew all expiring subscriptions
+// Enhanced GET endpoint for cron job with better error handling
 export async function GET() {
   try {
-    console.log('Checking for expiring webhook subscriptions...');
+    console.log('🔄 Starting automatic webhook renewal check...');
+
+    // First, try to refresh all active tokens proactively
+    try {
+      await refreshAllActiveTokens();
+      console.log('✅ Proactive token refresh completed');
+    } catch (refreshError) {
+      console.error('⚠️ Proactive token refresh failed:', refreshError);
+    }
 
     // Find subscriptions expiring in the next 30 minutes
     const thirtyMinsFromNow = new Date(Date.now() + 30 * 60 * 1000).toISOString();
@@ -161,24 +192,70 @@ export async function GET() {
           client_id,
           email_address,
           access_token,
-          refresh_token
+          refresh_token,
+          is_active
         )
       `)
       .eq('is_active', true)
       .lt('expires_at', thirtyMinsFromNow);
 
     if (error) {
-      console.error('Error fetching expiring subscriptions:', error);
+      console.error('❌ Error fetching expiring subscriptions:', error);
       return NextResponse.json({ error: 'Database error' }, { status: 500 });
+    }
+
+    console.log(`📊 Found ${expiringSubs?.length || 0} expiring subscriptions`);
+
+    if (!expiringSubs || expiringSubs.length === 0) {
+      return NextResponse.json({
+        message: 'No expiring subscriptions found',
+        checked: 0,
+        renewalResults: [],
+        timestamp: new Date().toISOString()
+      });
     }
 
     const renewalResults = [];
 
-    for (const subscription of expiringSubs || []) {
+    for (const subscription of expiringSubs) {
+      const emailAccount = subscription.email_accounts;
+      
       try {
-        console.log('Auto-renewing subscription:', subscription.subscription_id);
+        console.log(`🔄 Processing subscription for: ${emailAccount?.email_address}`);
 
-        // Get fresh access token using your existing tokenRefresh
+        // Skip if email account is inactive
+        if (!emailAccount?.is_active) {
+          console.log(`⏭️ Skipping inactive account: ${emailAccount?.email_address}`);
+          renewalResults.push({
+            client: emailAccount?.email_address,
+            status: 'skipped',
+            reason: 'Account is inactive'
+          });
+          continue;
+        }
+
+        // Check if refresh token is available
+        if (!emailAccount?.refresh_token) {
+          console.log(`⚠️ No refresh token for: ${emailAccount?.email_address}`);
+          
+          // Mark subscription as inactive since we can't renew it
+          await supabase
+            .from('webhook_subscriptions')
+            .update({ 
+              is_active: false,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', subscription.id);
+
+          renewalResults.push({
+            client: emailAccount?.email_address,
+            status: 'failed',
+            error: 'No refresh token available - client needs to re-authenticate'
+          });
+          continue;
+        }
+
+        // Get fresh access token using token refresh
         const validToken = await getValidAccessToken(subscription.email_account_id);
         const graphService = new GraphService(validToken);
 
@@ -194,33 +271,53 @@ export async function GET() {
           })
           .eq('id', subscription.id);
 
+        console.log(`✅ Subscription renewed for: ${emailAccount.email_address}`);
         renewalResults.push({
-          client: subscription.email_accounts.email_address,
+          client: emailAccount.email_address,
           status: 'renewed',
           newExpiry: renewedSub.expirationDateTime
         });
 
       } catch (renewError) {
-        console.error('Auto-renewal failed:', renewError);
+        console.error(`❌ Auto-renewal failed for ${emailAccount?.email_address}:`, renewError);
+        
+        // If renewal fails, mark subscription as inactive
+        await supabase
+          .from('webhook_subscriptions')
+          .update({ 
+            is_active: false,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', subscription.id);
+
         renewalResults.push({
-          client: subscription.email_accounts?.email_address,
+          client: emailAccount?.email_address,
           status: 'failed',
           error: renewError instanceof Error ? renewError.message : 'Unknown error'
         });
       }
     }
 
-    return NextResponse.json({
+    const summary = {
       message: 'Automatic webhook renewal check completed',
       checked: expiringSubs?.length || 0,
+      renewed: renewalResults.filter(r => r.status === 'renewed').length,
+      failed: renewalResults.filter(r => r.status === 'failed').length,
       renewalResults,
       timestamp: new Date().toISOString()
-    });
+    };
+
+    console.log('📊 Renewal summary:', summary);
+    return NextResponse.json(summary);
 
   } catch (error) {
-    console.error('Auto-renewal error:', error);
+    console.error('❌ Auto-renewal error:', error);
     return NextResponse.json(
-      { error: 'Failed to check subscriptions' },
+      { 
+        error: 'Failed to check subscriptions',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      },
       { status: 500 }
     );
   }

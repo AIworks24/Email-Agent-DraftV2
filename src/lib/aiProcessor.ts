@@ -1,10 +1,12 @@
 // Fixed: src/lib/aiProcessor.ts
-// Update model name to current Claude model
+// Corrected signature handling and conversation threading
+
 export interface EmailContext {
   subject: string;
   fromEmail: string;
   body: string;
   conversationHistory?: string;
+  originalMessage?: any; // Add full original message context
   clientTemplate: {
     writingStyle: string;
     tone: string;
@@ -43,7 +45,7 @@ export class AIEmailProcessor {
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022', // Updated model name
+          model: 'claude-3-5-sonnet-20241022',
           max_tokens: 1500,
           temperature: 0.3,
           messages: [
@@ -60,7 +62,8 @@ export class AIEmailProcessor {
       const data = await response.json();
       const aiText = data.content?.[0]?.text || '';
       
-      return this.formatResponse(aiText, context.clientTemplate.signature);
+      // Format response WITHOUT adding signature here (signature will be in template)
+      return this.formatResponse(aiText, false); // Don't add signature in formatting
     } catch (error) {
       console.error('AI processing error:', error);
       throw new Error(`Failed to generate AI response: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -79,7 +82,7 @@ export class AIEmailProcessor {
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022', // Updated model name
+          model: 'claude-3-5-sonnet-20241022',
           max_tokens: 2000,
           temperature: 0.3,
           messages: [
@@ -119,6 +122,12 @@ export class AIEmailProcessor {
   }
 
   private buildPrompt(context: EmailContext): string {
+    // Build conversation history if available
+    let conversationText = '';
+    if (context.conversationHistory) {
+      conversationText = `CONVERSATION HISTORY:\n${context.conversationHistory}\n\n`;
+    }
+
     // Format calendar availability in readable format
     let calendarText = '';
     if (context.calendarAvailability && context.calendarAvailability.length > 0) {
@@ -140,34 +149,42 @@ export class AIEmailProcessor {
         });
         return `${event.subject || 'Busy'}: ${startStr} - ${endStr}`;
       });
-      calendarText = `CALENDAR (Next 7 days - times in local timezone):\n${events.join('\n')}\n`;
+      calendarText = `CALENDAR AVAILABILITY (Next 7 days):\n${events.join('\n')}\n\n`;
     }
 
-    return `You are an AI email assistant helping to write professional email responses.
+    // Include sample emails for style reference
+    let sampleEmailsText = '';
+    if (context.clientTemplate.sampleEmails && context.clientTemplate.sampleEmails.length > 0) {
+      const validSamples = context.clientTemplate.sampleEmails.filter(sample => sample.trim());
+      if (validSamples.length > 0) {
+        sampleEmailsText = `WRITING STYLE EXAMPLES:\n${validSamples.map((sample, index) => `Example ${index + 1}:\n${sample.trim()}`).join('\n\n')}\n\n`;
+      }
+    }
 
-INCOMING EMAIL:
+    return `You are an AI email assistant helping to write professional email responses that match the user's personal writing style and tone.
+
+${conversationText}INCOMING EMAIL:
 Subject: ${context.subject}
 From: ${context.fromEmail}
 Body: ${context.body}
 
-CLIENT STYLE GUIDE:
+CLIENT COMMUNICATION PREFERENCES:
 - Writing Style: ${context.clientTemplate.writingStyle}
 - Tone: ${context.clientTemplate.tone}
-- Signature: ${context.clientTemplate.signature}
+- Email Signature: ${context.clientTemplate.signature}
 
-${context.conversationHistory ? `CONVERSATION HISTORY:\n${context.conversationHistory}\n` : ''}
+${sampleEmailsText}${calendarText}IMPORTANT INSTRUCTIONS:
+1. Write a response that acknowledges the sender's message appropriately
+2. Address their main points or questions directly
+3. Match the specified writing style and tone exactly
+4. Use natural, conversational language that matches the examples provided
+5. If mentioning availability, use natural language like "tomorrow afternoon" or "Wednesday morning"
+6. Do NOT include any signature or closing in your response - the signature will be added automatically
+7. Write in paragraph format with proper spacing
+8. Do not include a subject line
+9. Keep the response focused and actionable
 
-${calendarText}
-
-Please write a professional email response that:
-1. Acknowledges the sender's message appropriately
-2. Addresses their main points or questions
-3. Uses the specified writing style and tone
-4. Is helpful and actionable
-5. Maintains professional boundaries
-6. If mentioning availability, use natural language like "tomorrow afternoon" or "Wednesday morning" instead of specific UTC times
-
-Write in paragraph format with proper spacing. Do not include a subject line. Return only the email body text.`;
+Write only the email body content without any signature or closing. The signature will be added automatically by the system.`;
   }
 
   private buildAnalysisPrompt(context: EmailContext): string {
@@ -178,9 +195,11 @@ Subject: ${context.subject}
 From: ${context.fromEmail}
 Body: ${context.body}
 
+${context.conversationHistory ? `CONVERSATION HISTORY:\n${context.conversationHistory}\n` : ''}
+
 Provide your analysis in this exact JSON format:
 {
-  "content": "Your generated email response here",
+  "content": "Your generated email response here (without signature)",
   "confidence": 0.85,
   "reasoning": "Brief explanation of your approach and key considerations"
 }
@@ -190,16 +209,23 @@ Use these guidelines:
 - Tone: ${context.clientTemplate.tone}
 - Confidence should be 0.0-1.0 based on how clear the intent is
 - Keep reasoning brief but insightful
+- Do NOT include signature in content - it will be added separately
 
 Return only valid JSON.`;
   }
 
-  private formatResponse(aiText: string, signature: string): string {
+  private formatResponse(aiText: string, addSignature: boolean = false): string {
     // Clean up the AI response
     let formatted = aiText.trim();
     
     // Remove any subject line that might have been included
     formatted = formatted.replace(/^Subject:.*\n?/im, '').trim();
+    
+    // Remove any signature-like content that AI might have added
+    formatted = formatted.replace(/Best regards,?\n?.*$/im, '').trim();
+    formatted = formatted.replace(/Sincerely,?\n?.*$/im, '').trim();
+    formatted = formatted.replace(/Kind regards,?\n?.*$/im, '').trim();
+    formatted = formatted.replace(/Thank you,?\n?.*$/im, '').trim();
     
     // Convert to proper HTML formatting for email
     formatted = formatted
@@ -208,13 +234,6 @@ Return only valid JSON.`;
       .filter(paragraph => paragraph.length > 0)
       .map(paragraph => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
       .join('\n');
-    
-    // Add signature with proper formatting
-    if (!formatted.toLowerCase().includes('best regards') && 
-        !formatted.toLowerCase().includes('sincerely')) {
-      const formattedSignature = signature.replace(/\n/g, '<br>');
-      formatted += `\n\n<p>${formattedSignature}</p>`;
-    }
     
     return formatted;
   }
@@ -233,7 +252,7 @@ Return only valid JSON.`;
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022', // Updated model name
+          model: 'claude-3-5-sonnet-20241022',
           max_tokens: 500,
           temperature: 0.2,
           messages: [
@@ -255,5 +274,65 @@ Return only valid JSON.`;
       console.error('Conversation summary error:', error);
       return 'Unable to summarize conversation';
     }
+  }
+
+  async getConversationHistory(messageId: string, graphService: any): Promise<string> {
+    try {
+      // Get the original message details
+      const originalMessage = await graphService.getEmailDetails(messageId);
+      
+      if (!originalMessage || !originalMessage.conversationId) {
+        return '';
+      }
+
+      // Get all messages in the conversation thread
+      const conversationMessages = await graphService.getConversationThread(originalMessage.conversationId);
+      
+      if (!conversationMessages || conversationMessages.length <= 1) {
+        return '';
+      }
+
+      // Sort messages by received date
+      const sortedMessages = conversationMessages
+        .sort((a: any, b: any) => new Date(a.receivedDateTime).getTime() - new Date(b.receivedDateTime).getTime())
+        .slice(0, -1); // Remove the last message (current one we're replying to)
+
+      // Format conversation history
+      const history = sortedMessages.map((msg: any, index: number) => {
+        const from = msg.from?.emailAddress?.address || 'Unknown';
+        const date = new Date(msg.receivedDateTime).toLocaleDateString();
+        const body = this.cleanEmailBody(msg.body?.content || '');
+        
+        return `Message ${index + 1} (${date}):\nFrom: ${from}\n${body}`;
+      }).join('\n\n---\n\n');
+
+      return history;
+    } catch (error) {
+      console.error('Error getting conversation history:', error);
+      return '';
+    }
+  }
+
+  private cleanEmailBody(htmlContent: string): string {
+    // Remove HTML tags and decode entities
+    let cleaned = htmlContent.replace(/<[^>]*>/g, '');
+    
+    // Decode common HTML entities
+    cleaned = cleaned
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ');
+
+    // Remove excessive whitespace and truncate if too long
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    
+    if (cleaned.length > 500) {
+      cleaned = cleaned.substring(0, 500) + '...';
+    }
+    
+    return cleaned;
   }
 }
