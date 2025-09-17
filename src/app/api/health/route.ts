@@ -1,4 +1,10 @@
+// Fixed: src/app/api/health/route.ts
+// Add dynamic export to prevent static generation
+
 import { NextResponse } from 'next/server';
+
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   return NextResponse.json({ 

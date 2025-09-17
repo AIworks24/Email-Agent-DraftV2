@@ -1,6 +1,11 @@
-// src/app/api/emails/route.ts
+// Fixed: src/app/api/emails/route.ts
+// Add dynamic export to prevent static generation
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+
+// This tells Next.js that this route uses dynamic features and should not be statically generated
+export const dynamic = 'force-dynamic';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

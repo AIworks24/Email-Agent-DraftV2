@@ -1,5 +1,10 @@
-// src/app/api/env-status/route.ts
+// Fixed: src/app/api/env-status/route.ts
+// Add dynamic export to prevent static generation
+
 import { NextResponse } from 'next/server';
+
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {

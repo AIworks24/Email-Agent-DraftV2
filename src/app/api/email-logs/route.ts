@@ -1,5 +1,11 @@
+// Fixed: src/app/api/email-logs/route.ts
+// Add dynamic export to prevent static generation
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,7 +16,7 @@ interface EmailLog {
   id: string;
   created_at: string;
   subject: string;
-  from_email: string;
+  sender_email: string;
   status: string;
   ai_response: string;
   email_accounts?: {
@@ -47,8 +53,7 @@ export async function GET() {
       id: log.id,
       created_at: log.created_at,
       subject: log.subject,
-      from_email: log.from_email,
-      sender_email: log.from_email,
+      sender_email: log.sender_email,
       status: log.status,
       ai_response: log.ai_response,
       client: log.email_accounts?.clients

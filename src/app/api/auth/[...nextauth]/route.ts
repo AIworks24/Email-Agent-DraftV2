@@ -5,6 +5,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { createClient } from '@supabase/supabase-js';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { nextauth: string[] } }

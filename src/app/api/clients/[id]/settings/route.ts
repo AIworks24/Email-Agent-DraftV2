@@ -1,5 +1,11 @@
+// Fixed: src/app/api/clients/[id]/settings/route.ts
+// Add dynamic export to prevent static generation
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -50,7 +56,7 @@ export async function PUT(
           tone: settings.tone,
           signature: settings.signature || '',
           sample_emails: settings.sampleEmails || [],
-          is_active: true, // Your table has is_active, not is_default
+          is_active: true,
           auto_response: settings.autoResponse,
           response_delay: settings.responseDelay || 0,
           created_at: new Date().toISOString(),

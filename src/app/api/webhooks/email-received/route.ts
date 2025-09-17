@@ -7,6 +7,8 @@ import { GraphService } from '@/lib/microsoftGraph';
 import { AIEmailProcessor, EmailContext } from '@/lib/aiProcessor';
 import { extractEmailAddress, sanitizeEmailContent, estimateTokens } from '@/lib/utils';
 
+export const dynamic = 'force-dynamic';
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
