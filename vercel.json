@@ -4,6 +4,7 @@
   "devCommand": "npm run dev",
   "installCommand": "npm install",
   "outputDirectory": ".next",
+  "nodejs": "18.x",
   "functions": {
     "src/app/api/**/*.ts": {
       "maxDuration": 60

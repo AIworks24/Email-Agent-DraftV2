@@ -8,30 +8,38 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "audit-fix": "npm audit fix --force"
   },
   "dependencies": {
-    "next": "14.2.0",
-    "react": "18.3.0",
-    "react-dom": "18.3.0",
-    "@supabase/supabase-js": "2.39.0",
-    "@azure/msal-node": "2.6.0",
+    "@azure/msal-node": "2.15.0",
     "@microsoft/microsoft-graph-client": "3.0.7",
+    "@supabase/supabase-js": "2.39.8",
+    "@tailwindcss/forms": "^0.5.9",
+    "autoprefixer": "^10.4.20",
     "jsonwebtoken": "9.0.2",
-    "uuid": "9.0.1"
+    "next": "14.2.32",
+    "postcss": "^8.4.49",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwindcss": "^3.4.14",
+    "uuid": "10.0.0"
   },
   "devDependencies": {
-    "@types/node": "20.11.0",
-    "@types/react": "18.2.48",
-    "@types/react-dom": "18.2.18",
-    "@types/jsonwebtoken": "9.0.5",
-    "@types/uuid": "9.0.7",
-    "typescript": "5.3.3",
-    "eslint": "8.56.0",
-    "eslint-config-next": "14.2.0"
+    "@types/jsonwebtoken": "9.0.7",
+    "@types/node": "^20.19.16",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@types/uuid": "10.0.0",
+    "eslint": "8.57.1",
+    "eslint-config-next": "14.2.32",
+    "typescript": "5.6.3"
   },
   "engines": {
-    "node": ">=18.0.0",
+    "node": "18.x",
     "npm": ">=8.0.0"
+  },
+  "resolutions": {
+    "next": "14.2.32"
   }
 }
