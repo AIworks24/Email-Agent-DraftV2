@@ -9,7 +9,7 @@ interface ClientSettings {
   signature: string;
   sampleEmails: string[];
   autoResponse: boolean;
-  responseDelay: number; // minutes
+  responseDelay: number;
 }
 
 interface Client {
@@ -20,6 +20,7 @@ interface Client {
   created_at: string;
   updated_at?: string;
   emails_processed?: number;
+  is_active?: boolean;
   stats?: {
     totalEmails?: number;
     draftsCreated?: number;
@@ -69,6 +70,19 @@ export default function ClientDashboard() {
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Client management state
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [showManageModal, setShowManageModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [clientSettings, setClientSettings] = useState<ClientSettings>({
+    writingStyle: 'professional',
+    tone: 'friendly',
+    signature: '',
+    sampleEmails: [''],
+    autoResponse: true,
+    responseDelay: 0
+  });
+
   useEffect(() => {
     loadDashboardData();
   }, []);
@@ -109,7 +123,7 @@ export default function ClientDashboard() {
   const fetchEmailLogs = async () => {
     try {
       setRefreshing(true);
-      const response = await fetch('/api/email-logs?' + new Date().getTime()); // Cache bust
+      const response = await fetch('/api/email-logs?' + new Date().getTime());
       if (response.ok) {
         const data = await response.json();
         setEmailLogs((data?.logs as EmailLog[]) || []);
@@ -150,19 +164,7 @@ export default function ClientDashboard() {
     }
   };
 
-  // Manage Client modal state
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
-  const [showManageModal, setShowManageModal] = useState(false);
-  const [clientSettings, setClientSettings] = useState<ClientSettings>({
-    writingStyle: 'professional',
-    tone: 'friendly',
-    signature: '',
-    sampleEmails: [''],
-    autoResponse: true,
-    responseDelay: 0 // Changed to 0 for immediate responses
-  });
-
-  // Add webhook setup function
+  // Add webhook setup function with better error handling
   const setupWebhookForClient = async (client: Client) => {
     try {
       const response = await fetch('/api/setup-webhook', {
@@ -174,29 +176,108 @@ export default function ClientDashboard() {
       const result = await response.json();
       
       if (response.ok) {
-        alert(`Webhook setup successful for ${client.name}!\n\nSubscription ID: ${result.subscription?.id}\nWebhook URL: ${result.webhookUrl}`);
-        // Refresh clients to show updated status
-        loadDashboardData();
+        alert(`✅ Webhook setup successful for ${client.name}!\n\nSubscription ID: ${result.subscription?.id}\nExpires: ${new Date(result.expiresAt).toLocaleString()}`);
+        loadDashboardData(); // Refresh to show updated status
       } else {
-        alert(`Webhook setup failed: ${result.error}\n\nDetails: ${result.message || 'Unknown error'}`);
+        if (result.canContinue) {
+          const shouldContinue = confirm(`⚠️ Warning for ${client.name}:\n\n${result.message}\n\nThe webhook will work until the current token expires (~1 hour).\n\nClick OK to proceed anyway, or Cancel to re-authenticate this client first.`);
+          
+          if (shouldContinue) {
+            // Try again but force it
+            const forceResponse = await fetch('/api/setup-webhook', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ clientId: client.id, force: true })
+            });
+            
+            const forceResult = await forceResponse.json();
+            if (forceResponse.ok) {
+              alert(`✅ Webhook created (limited duration) for ${client.name}!\n\nNote: Will need re-authentication when token expires.`);
+            } else {
+              alert(`❌ Failed: ${forceResult.error}`);
+            }
+          }
+        } else {
+          alert(`❌ Webhook setup failed for ${client.name}:\n\n${result.message}\n\n${result.recommendation || 'Please try again or contact support.'}`);
+        }
       }
     } catch (error) {
       console.error('Webhook setup error:', error);
-      alert(`Failed to setup webhook: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`❌ Failed to setup webhook: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
-  const handleManageClient = (client: Client) => {
+
+  // Toggle client active status
+  const toggleClientStatus = async (client: Client) => {
+    try {
+      const newStatus = !client.is_active;
+      const response = await fetch(`/api/clients/${client.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: newStatus })
+      });
+
+      if (response.ok) {
+        setClients(clients.map(c => 
+          c.id === client.id ? { ...c, is_active: newStatus } : c
+        ));
+        alert(`✅ Client ${newStatus ? 'activated' : 'deactivated'} successfully!`);
+      } else {
+        const error = await response.json();
+        alert(`❌ Failed to update client status: ${error.message}`);
+      }
+    } catch (error) {
+      console.error('Toggle client error:', error);
+      alert(`❌ Failed to update status: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  // Delete client
+  const deleteClient = async (clientId: string) => {
+    try {
+      const response = await fetch(`/api/clients/${clientId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        setClients(clients.filter(c => c.id !== clientId));
+        setShowDeleteConfirm(null);
+        alert('✅ Client deleted successfully!');
+        loadDashboardData(); // Refresh stats
+      } else {
+        const error = await response.json();
+        alert(`❌ Failed to delete client: ${error.message}`);
+      }
+    } catch (error) {
+      console.error('Delete client error:', error);
+      alert(`❌ Failed to delete client: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleManageClient = async (client: Client) => {
     console.log('Managing client:', client);
     setSelectedClient(client);
     
-    setClientSettings({
-      writingStyle: client.settings?.writingStyle || 'professional',
-      tone: client.settings?.tone || 'friendly', 
-      signature: client.settings?.signature || `Best regards,\n${client.name}`,
-      sampleEmails: client.settings?.sampleEmails || [''],
-      autoResponse: client.settings?.autoResponse !== false,
-      responseDelay: client.settings?.responseDelay ?? 0 // Changed to 0
-    });
+    // Load current settings
+    try {
+      const response = await fetch(`/api/clients/${client.id}/settings`);
+      if (response.ok) {
+        const data = await response.json();
+        setClientSettings(data.settings);
+      } else {
+        // Use defaults if no settings found
+        setClientSettings({
+          writingStyle: 'professional',
+          tone: 'friendly',
+          signature: `Best regards,\n${client.name}`,
+          sampleEmails: [''],
+          autoResponse: true,
+          responseDelay: 0
+        });
+      }
+    } catch (error) {
+      console.error('Error loading client settings:', error);
+    }
     
     setShowManageModal(true);
   };
@@ -224,11 +305,11 @@ export default function ClientDashboard() {
       ));
       
       setShowManageModal(false);
-      alert('Settings saved successfully!');
+      alert('✅ Settings saved successfully!');
       
     } catch (error) {
       console.error('Error saving settings:', error);
-      alert('Failed to save settings. Please try again.');
+      alert('❌ Failed to save settings. Please try again.');
     }
   };
 
@@ -633,48 +714,10 @@ export default function ClientDashboard() {
                 )}
               </div>
             </div>
-
-            {/* Activity Section */}
-            <div style={cardStyle}>
-              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600' }}>
-                Email Activity
-              </h3>
-              {loading ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
-                  Loading...
-                </div>
-              ) : clients.length === 0 ? (
-                <div style={{
-                  textAlign: 'center',
-                  padding: '40px',
-                  color: '#6b7280'
-                }}>
-                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>📧</div>
-                  <div style={{ fontSize: '18px', marginBottom: '8px' }}>No Email Activity Yet</div>
-                  <div style={{ fontSize: '14px', marginBottom: '16px' }}>
-                    Connect your first client to start processing emails.
-                  </div>
-                  <button
-                    onClick={initiateClientRegistration}
-                    style={{
-                      ...buttonStyle,
-                      backgroundColor: '#3b82f6',
-                      color: 'white'
-                    }}
-                  >
-                    Add Your First Client
-                  </button>
-                </div>
-              ) : (
-                <div style={{ color: '#6b7280', textAlign: 'center', padding: '20px' }}>
-                  Email activity will appear here once emails are processed.
-                </div>
-              )}
-            </div>
           </div>
         )}
 
-        {/* Clients Tab */}
+        {/* Enhanced Clients Tab */}
         {activeTab === 'clients' && (
           <div style={cardStyle}>
             <div style={{
@@ -758,17 +801,24 @@ export default function ClientDashboard() {
                       </div>
                     </div>
                     
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <span style={{
-                        padding: '4px 8px',
-                        borderRadius: '12px',
-                        fontSize: '12px',
-                        fontWeight: '500',
-                        backgroundColor: client.status === 'active' ? '#dcfce7' : '#f3f4f6',
-                        color: client.status === 'active' ? '#16a34a' : '#6b7280'
-                      }}>
-                        {client.status}
-                      </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {/* Active/Inactive Toggle */}
+                      <button
+                        onClick={() => toggleClientStatus(client)}
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: '12px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          border: 'none',
+                          cursor: 'pointer',
+                          backgroundColor: client.is_active !== false ? '#dcfce7' : '#fef2f2',
+                          color: client.is_active !== false ? '#16a34a' : '#dc2626'
+                        }}
+                        title={`Click to ${client.is_active !== false ? 'deactivate' : 'activate'}`}
+                      >
+                        {client.is_active !== false ? '🟢 Active' : '🔴 Inactive'}
+                      </button>
 
                       <button
                         onClick={() => setupWebhookForClient(client)}
@@ -800,6 +850,23 @@ export default function ClientDashboard() {
                         }}
                       >
                         Manage
+                      </button>
+
+                      <button
+                        onClick={() => setShowDeleteConfirm(client.id)}
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: '#dc2626',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          fontWeight: '500'
+                        }}
+                        title="Delete this client"
+                      >
+                        Delete
                       </button>
                     </div>
                   </div>
@@ -842,19 +909,100 @@ ${envStatus?.WEBHOOK_BASE_URL ? '✓' : '❌'} WEBHOOK_BASE_URL: ${envStatus?.WE
               borderRadius: '6px',
               borderLeft: '4px solid #3b82f6'
             }}>
-              <h4 style={{ margin: '0 0 8px 0', color: '#1e40af' }}>Next Steps</h4>
+              <h4 style={{ margin: '0 0 8px 0', color: '#1e40af' }}>Troubleshooting</h4>
               <ol style={{ margin: 0, paddingLeft: '20px', color: '#1e40af' }}>
-                <li>Configure missing environment variables in Vercel</li>
-                <li>Set up Supabase database tables</li>
-                <li>Add your first client</li>
-                <li>Test email automation workflow</li>
+                <li>If "No refresh token available" - remove and re-add affected clients</li>
+                <li>Check webhook subscriptions in Vercel deployment logs</li>
+                <li>Test email automation with a simple test email</li>
+                <li>Verify Microsoft Graph permissions are properly granted</li>
               </ol>
             </div>
           </div>
         )}
       </div>
 
-      {/* Manage Client Modal - Fixed with Inline Styles */}
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 50
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '24px',
+            maxWidth: '400px',
+            width: '90%'
+          }}>
+            <h3 style={{
+              fontSize: '18px',
+              fontWeight: 'bold',
+              marginBottom: '16px',
+              color: '#dc2626'
+            }}>
+              ⚠️ Delete Client
+            </h3>
+            <p style={{
+              marginBottom: '24px',
+              color: '#374151'
+            }}>
+              Are you sure you want to delete this client? This will:
+            </p>
+            <ul style={{
+              marginBottom: '24px',
+              paddingLeft: '20px',
+              color: '#6b7280'
+            }}>
+              <li>Remove all client data and settings</li>
+              <li>Disable email webhooks</li>
+              <li>Delete all email processing logs</li>
+              <li>This action cannot be undone</li>
+            </ul>
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                onClick={() => setShowDeleteConfirm(null)}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#f3f4f6',
+                  color: '#374151',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteClient(showDeleteConfirm)}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#dc2626',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                Delete Client
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Client Modal - Enhanced */}
       {showManageModal && selectedClient && (
         <div style={{
           position: 'fixed',
@@ -905,7 +1053,7 @@ ${envStatus?.WEBHOOK_BASE_URL ? '✓' : '❌'} WEBHOOK_BASE_URL: ${envStatus?.WE
                     margin: '4px 0 0 0',
                     fontSize: '14px'
                   }}>
-                    {selectedClient.email}
+                    {selectedClient.email} • {selectedClient.is_active !== false ? '🟢 Active' : '🔴 Inactive'}
                   </p>
                 </div>
                 <button
@@ -966,13 +1114,13 @@ ${envStatus?.WEBHOOK_BASE_URL ? '✓' : '❌'} WEBHOOK_BASE_URL: ${envStatus?.WE
                       fontWeight: 'bold',
                       color: '#2563eb'
                     }}>
-                      {clientSettings.autoResponse ? 'Active' : 'Disabled'}
+                      {clientSettings.autoResponse ? 'ON' : 'OFF'}
                     </div>
                     <div style={{
                       fontSize: '12px',
                       color: '#6b7280'
                     }}>
-                      AI Status
+                      Auto Response
                     </div>
                   </div>
                   <div>
@@ -982,10 +1130,10 @@ ${envStatus?.WEBHOOK_BASE_URL ? '✓' : '❌'} WEBHOOK_BASE_URL: ${envStatus?.WE
                       borderRadius: '20px',
                       fontSize: '12px',
                       fontWeight: '500',
-                      backgroundColor: selectedClient.status === 'active' ? '#dcfce7' : '#f3f4f6',
-                      color: selectedClient.status === 'active' ? '#16a34a' : '#6b7280'
+                      backgroundColor: selectedClient.is_active !== false ? '#dcfce7' : '#fef2f2',
+                      color: selectedClient.is_active !== false ? '#16a34a' : '#dc2626'
                     }}>
-                      {selectedClient.status?.charAt(0).toUpperCase() + selectedClient.status?.slice(1)}
+                      {selectedClient.is_active !== false ? 'Active' : 'Inactive'}
                     </span>
                   </div>
                 </div>
