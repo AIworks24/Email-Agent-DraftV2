@@ -7,8 +7,6 @@ import { GraphService } from '@/lib/microsoftGraph';
 import { AIEmailProcessor, EmailContext } from '@/lib/aiProcessor';
 import { extractEmailAddress, sanitizeEmailContent, estimateTokens } from '@/lib/utils';
 
-export const dynamic = 'force-dynamic';
-
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
@@ -169,9 +167,9 @@ async function processEmailNotification(notification: any) {
       .insert({
         email_account_id: emailAccount.id,
         message_id: messageId,
-        subject: 'Processing...',
-        sender_email: 'processing@temp.com',
-        original_body: 'Processing email...',
+        subject: 'Loading...',
+        sender_email: 'system@processing.temp',
+        original_body: 'Fetching email details...',
         status: 'pending',
         tokens_used: 0
       })

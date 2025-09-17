@@ -81,21 +81,20 @@ export class GraphService {
       const originalDate = new Date(originalMessage.receivedDateTime).toLocaleString();
       const originalSubject = originalMessage.subject || 'No Subject';
       
-      // Clean the original body content
+      // Preserve original formatting but clean up excessive styling
       let originalBody = originalMessage.body?.content || '';
-      originalBody = this.cleanHtmlContent(originalBody);
+      originalBody = this.cleanHtmlContent(originalBody, true); // true = preserve formatting
       
-      // Add the original message thread
+      // Add the original message thread with proper HTML structure
       emailBody += `
         <br><br>
-        <hr>
-        <div style="font-size: 12px; color: #666;">
+        <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">
+        <div style="font-size: 12px; color: #666; margin-bottom: 10px;">
           <p><strong>From:</strong> ${originalSender}</p>
           <p><strong>Sent:</strong> ${originalDate}</p>
           <p><strong>Subject:</strong> ${originalSubject}</p>
         </div>
-        <br>
-        <div style="border-left: 2px solid #ccc; padding-left: 10px; margin-left: 10px;">
+        <div style="border-left: 3px solid #0078d4; padding-left: 15px; margin-left: 10px; color: #333;">
           ${originalBody}
         </div>
       `;
@@ -105,26 +104,71 @@ export class GraphService {
   }
 
   /**
-   * Clean HTML content for threading display
+   * Clean HTML content while preserving formatting
    */
-  private cleanHtmlContent(htmlContent: string): string {
+  private cleanHtmlContent(htmlContent: string, preserveFormatting: boolean = false): string {
     if (!htmlContent) return '';
     
-    // Remove excessive styling but keep basic formatting
-    let cleaned = htmlContent
-      .replace(/<style[^>]*>.*?<\/style>/gi, '') // Remove style tags
-      .replace(/<script[^>]*>.*?<\/script>/gi, '') // Remove script tags
-      .replace(/style\s*=\s*"[^"]*"/gi, '') // Remove inline styles
-      .replace(/class\s*=\s*"[^"]*"/gi, '') // Remove classes
-      .replace(/<font[^>]*>/gi, '') // Remove font tags
-      .replace(/<\/font>/gi, '');
-    
-    // Truncate if too long to avoid overwhelming the reply
-    if (cleaned.length > 2000) {
-      cleaned = cleaned.substring(0, 2000) + '...<br><em>[Message truncated]</em>';
+    if (preserveFormatting) {
+      // Preserve formatting - only remove dangerous/excessive elements
+      let cleaned = htmlContent
+        // Remove potentially dangerous elements
+        .replace(/<script[^>]*>.*?<\/script>/gi, '')
+        .replace(/<style[^>]*>.*?<\/style>/gi, '')
+        .replace(/<link[^>]*>/gi, '')
+        .replace(/<meta[^>]*>/gi, '')
+        
+        // Clean up Microsoft-specific markup but keep basic formatting
+        .replace(/<!--\[if[^>]*>.*?<!\[endif\]-->/gi, '')
+        .replace(/<o:p[^>]*>.*?<\/o:p>/gi, '')
+        .replace(/<v:[^>]*>.*?<\/v:[^>]*>/gi, '')
+        .replace(/mso-[^;]*;?/gi, '')
+        
+        // Remove excessive inline styles but keep basic ones
+        .replace(/style\s*=\s*"[^"]*?(font-family|color|background|text-align|font-size|font-weight)[^"]*"/gi, (match) => {
+          // Keep only basic formatting styles
+          const basicStyles = match.match(/(font-family|color|background-color|text-align|font-size|font-weight|margin|padding):[^;]*;?/gi);
+          if (basicStyles) {
+            return `style="${basicStyles.join(' ').trim()}"`;
+          }
+          return '';
+        })
+        
+        // Remove empty style attributes
+        .replace(/\s*style\s*=\s*["']?\s*["']?/gi, '')
+        
+        // Clean up excessive whitespace but preserve paragraph breaks
+        .replace(/\s*\n\s*/g, ' ')
+        .replace(/(<\/p>\s*<p[^>]*>)/gi, '</p><p>')
+        .replace(/(<\/div>\s*<div[^>]*>)/gi, '</div><div>')
+        
+        // Ensure proper paragraph spacing
+        .replace(/<p([^>]*)>\s*<\/p>/gi, '<br>') // Replace empty paragraphs with breaks
+        .replace(/<div([^>]*)>\s*<\/div>/gi, '<br>'); // Replace empty divs with breaks
+      
+      return cleaned;
+    } else {
+      // Original behavior - strip all HTML for plain text
+      let cleaned = htmlContent.replace(/<[^>]*>/g, '');
+      
+      // Decode common HTML entities
+      cleaned = cleaned
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, ' ');
+
+      // Remove excessive whitespace and truncate if too long
+      cleaned = cleaned.replace(/\s+/g, ' ').trim();
+      
+      if (cleaned.length > 2000) {
+        cleaned = cleaned.substring(0, 2000) + '...<br><em>[Message truncated]</em>';
+      }
+      
+      return cleaned;
     }
-    
-    return cleaned;
   }
 
   /**
@@ -145,14 +189,31 @@ export class GraphService {
   }
 
   /**
-   * Get specific email details
+   * Get specific email details without marking as read
    */
   async getEmailDetails(messageId: string) {
     try {
-      return await this.client
+      // Get email details without marking as read
+      const emailDetails = await this.client
         .api(`/me/messages/${messageId}`)
         .select('id,subject,from,toRecipients,ccRecipients,body,receivedDateTime,conversationId,isRead')
         .get();
+
+      // If the email was unread, ensure it stays unread
+      if (!emailDetails.isRead) {
+        try {
+          await this.client
+            .api(`/me/messages/${messageId}`)
+            .patch({
+              isRead: false
+            });
+          console.log('📧 Kept email unread for notification purposes');
+        } catch (markError) {
+          console.log('⚠️ Could not maintain unread status:', markError);
+        }
+      }
+
+      return emailDetails;
     } catch (error) {
       console.error('Error fetching email details:', error);
       throw error;

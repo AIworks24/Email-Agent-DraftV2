@@ -126,7 +126,15 @@ export default function ClientDashboard() {
       const response = await fetch('/api/email-logs?' + new Date().getTime());
       if (response.ok) {
         const data = await response.json();
-        setEmailLogs((data?.logs as EmailLog[]) || []);
+        // Filter out old processing/test entries
+        const validLogs = (data?.logs as EmailLog[])?.filter(log => 
+          log.sender_email && 
+          !log.sender_email.includes('processing@temp.com') && 
+          !log.sender_email.includes('system@processing.temp') &&
+          log.subject !== 'Processing...' &&
+          log.subject !== 'Loading...'
+        ) || [];
+        setEmailLogs(validLogs);
       } else {
         console.error('Failed to fetch email logs:', response.status);
       }
@@ -134,6 +142,29 @@ export default function ClientDashboard() {
       console.error('Error fetching email logs:', error);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  // Clean up old test data
+  const cleanupTestData = async () => {
+    try {
+      const response = await fetch('/api/cleanup-test-data', {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Cleanup completed:', result);
+        // Refresh data after cleanup
+        loadDashboardData();
+        fetchEmailLogs();
+        alert('✅ Test data cleaned up successfully!');
+      } else {
+        alert('❌ Cleanup failed');
+      }
+    } catch (error) {
+      console.error('Cleanup error:', error);
+      alert('❌ Cleanup failed');
     }
   };
 
@@ -546,10 +577,26 @@ export default function ClientDashboard() {
                     border: 'none',
                     cursor: refreshing ? 'not-allowed' : 'pointer',
                     backgroundColor: refreshing ? '#f3f4f6' : '#dbeafe',
-                    color: refreshing ? '#9ca3af' : '#1d4ed8'
+                    color: refreshing ? '#9ca3af' : '#1d4ed8',
+                    marginRight: '8px'
                   }}
                 >
                   {refreshing ? 'Refreshing...' : 'Refresh'}
+                </button>
+                <button
+                  onClick={cleanupTestData}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    backgroundColor: '#f59e0b',
+                    color: 'white'
+                  }}
+                  title="Clean up old test/processing entries"
+                >
+                  🧹 Cleanup
                 </button>
               </div>
 
