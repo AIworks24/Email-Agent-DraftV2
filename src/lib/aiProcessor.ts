@@ -122,6 +122,23 @@ export class AIEmailProcessor {
   }
 
   private buildPrompt(context: EmailContext): string {
+    const now = new Date();
+    const easternTime = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short'
+    }).format(now);
+
+    const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      weekday: 'long'
+    }).format(now);
+  
     // Build conversation history if available
     let conversationText = '';
     if (context.conversationHistory) {
@@ -162,6 +179,9 @@ export class AIEmailProcessor {
     }
 
     return `You are an AI email assistant helping to write professional email responses that match the user's personal writing style and tone.
+
+CURRENT DATE AND TIME: ${easternTime}
+TODAY IS: ${dayOfWeek}
 
 ${conversationText}INCOMING EMAIL:
 Subject: ${context.subject}

@@ -78,24 +78,45 @@ export class GraphService {
     // Add the original message as context (this creates proper threading)
     if (originalMessage) {
       const originalSender = originalMessage.from?.emailAddress?.address || 'Unknown Sender';
-      const originalDate = new Date(originalMessage.receivedDateTime).toLocaleString();
+      const originalSenderName = originalMessage.from?.emailAddress?.name || originalSender;
+      
+      // Parse the original date and convert to local timezone
+      const originalDate = new Date(originalMessage.receivedDateTime);
+      
+      // Format date to match Outlook's style (Eastern Time)
+      const formattedDate = originalDate.toLocaleString('en-US', {
+        weekday: 'long',
+        year: 'numeric', 
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZoneName: 'short',
+        timeZone: 'America/New_York' // Eastern Time
+      });
+      
       const originalSubject = originalMessage.subject || 'No Subject';
       
       // Preserve original formatting but clean up excessive styling
       let originalBody = originalMessage.body?.content || '';
-      originalBody = this.cleanHtmlContent(originalBody, true); // true = preserve formatting
+      originalBody = this.cleanHtmlContent(originalBody, true);
       
-      // Add the original message thread with proper HTML structure
+      // Format the thread header to match Outlook's style exactly
       emailBody += `
         <br><br>
-        <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">
-        <div style="font-size: 12px; color: #666; margin-bottom: 10px;">
-          <p><strong>From:</strong> ${originalSender}</p>
-          <p><strong>Sent:</strong> ${originalDate}</p>
-          <p><strong>Subject:</strong> ${originalSubject}</p>
-        </div>
-        <div style="border-left: 3px solid #0078d4; padding-left: 15px; margin-left: 10px; color: #333;">
-          ${originalBody}
+        <hr style="border: none; border-top: 1px solid #E1E1E1; margin: 20px 0;">
+        <div style="border: none; border-left: solid blue 1.5pt; padding: 0 0 0 4.0pt; margin-left: 0;">
+          <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+            <b>From:</b> ${originalSenderName} &lt;${originalSender}&gt;<br>
+            <b>Sent:</b> ${formattedDate}<br>
+            <b>To:</b> ${originalMessage.toRecipients?.map((r: any) => r.emailAddress?.address || r.address).join('; ') || 'Me'}<br>
+            <b>Subject:</b> ${originalSubject}
+          </div>
+          <br>
+          <div style="font-family: Calibri, sans-serif; font-size: 11pt; color: #000000;">
+            ${originalBody}
+          </div>
         </div>
       `;
     }
@@ -193,24 +214,28 @@ export class GraphService {
    */
   async getEmailDetails(messageId: string) {
     try {
-      // Get email details without marking as read
+      // Get email details
       const emailDetails = await this.client
         .api(`/me/messages/${messageId}`)
         .select('id,subject,from,toRecipients,ccRecipients,body,receivedDateTime,conversationId,isRead')
         .get();
 
-      // If the email was unread, ensure it stays unread
+      // Immediately mark back as unread if it was originally unread
+      // We need to do this right after reading to preserve notification state
       if (!emailDetails.isRead) {
-        try {
-          await this.client
-            .api(`/me/messages/${messageId}`)
-            .patch({
-              isRead: false
-            });
-          console.log('📧 Kept email unread for notification purposes');
-        } catch (markError) {
-          console.log('⚠️ Could not maintain unread status:', markError);
-        }
+        // Use a timeout to ensure the read operation completes first
+        setTimeout(async () => {
+          try {
+            await this.client
+              .api(`/me/messages/${messageId}`)
+              .patch({
+                isRead: false
+              });
+            console.log('📧 Successfully kept email unread for notifications');
+          } catch (markError) {
+            console.log('⚠️ Could not maintain unread status:', markError);
+          }
+        }, 500); // Wait 500ms then mark as unread
       }
 
       return emailDetails;
