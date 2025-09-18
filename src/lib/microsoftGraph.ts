@@ -445,4 +445,109 @@ export class GraphService {
       return false;
     }
   }
+
+  
+   /* This removes problematic subscriptions that are catching delete/update events
+   */
+  async cleanupOldSubscriptions(): Promise<void> {
+    try {
+      console.log('🧹 Checking for old webhook subscriptions...');
+      
+      // Get all current subscriptions
+      const subscriptions = await this.client
+        .api('/subscriptions')
+        .get();
+
+      console.log(`📊 Found ${subscriptions.value?.length || 0} total subscriptions`);
+
+      if (!subscriptions.value || subscriptions.value.length === 0) {
+        console.log('✅ No subscriptions found');
+        return;
+      }
+
+      // Analyze and clean up subscriptions
+      for (const subscription of subscriptions.value) {
+        console.log('🔍 Analyzing subscription:', {
+          id: subscription.id,
+          resource: subscription.resource,
+          changeType: subscription.changeType,
+          expiresAt: subscription.expirationDateTime
+        });
+
+        // 🚨 DELETE problematic subscriptions
+        const shouldDelete = (
+          // Delete if resource is too broad (catches all messages)
+          subscription.resource === '/me/messages' ||
+          subscription.resource === 'me/messages' ||
+          
+          // Delete if changeType includes updated/deleted
+          subscription.changeType?.includes('updated') ||
+          subscription.changeType?.includes('deleted') ||
+          
+          // Delete if not specifically targeting Inbox
+          (subscription.resource && 
+          !subscription.resource.includes('Inbox') && 
+          subscription.resource.includes('messages'))
+        );
+
+        if (shouldDelete) {
+          console.log(`🗑️ DELETING problematic subscription: ${subscription.id}`);
+          console.log(`   Resource: ${subscription.resource}`);
+          console.log(`   ChangeType: ${subscription.changeType}`);
+          
+          try {
+            await this.client
+              .api(`/subscriptions/${subscription.id}`)
+              .delete();
+            
+            console.log(`✅ Deleted subscription: ${subscription.id}`);
+          } catch (deleteError) {
+            console.error(`❌ Failed to delete subscription ${subscription.id}:`, deleteError);
+          }
+        } else {
+          console.log(`✅ KEEPING valid subscription: ${subscription.id}`);
+          console.log(`   Resource: ${subscription.resource}`);
+          console.log(`   ChangeType: ${subscription.changeType}`);
+        }
+      }
+
+      console.log('🧹 Subscription cleanup completed');
+      
+    } catch (error) {
+      console.error('❌ Error during subscription cleanup:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 🔍 DEBUG: List all current subscriptions
+   */
+  async listAllSubscriptions(): Promise<any[]> {
+    try {
+      const subscriptions = await this.client
+        .api('/subscriptions')
+        .get();
+
+      console.log('📊 All current subscriptions:');
+      
+      if (!subscriptions.value || subscriptions.value.length === 0) {
+        console.log('   No subscriptions found');
+        return [];
+      }
+
+      subscriptions.value.forEach((sub: any, index: number) => {
+        console.log(`   ${index + 1}. ID: ${sub.id}`);
+        console.log(`      Resource: ${sub.resource}`);
+        console.log(`      ChangeType: ${sub.changeType}`);
+        console.log(`      Expires: ${sub.expirationDateTime}`);
+        console.log(`      NotificationUrl: ${sub.notificationUrl?.substring(0, 50)}...`);
+        console.log(`      ---`);
+      });
+
+      return subscriptions.value;
+    } catch (error) {
+      console.error('❌ Error listing subscriptions:', error);
+      return [];
+    }
+  }
 }
