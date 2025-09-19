@@ -262,7 +262,7 @@ async function processEmailNotificationWithDelay(notification: any): Promise<any
       return { status: 'error', reason: 'Account inactive' };
     }
 
-    console.log('✅ Email passed all validation checks, preparing for DELAYED processing:', messageId);
+    console.log('✅ Email passed all validation checks, processing immediately with unread preservation...');
 
     // Atomic database insert to claim processing rights
     const { data: emailLog, error: logError } = await supabase!
@@ -270,10 +270,10 @@ async function processEmailNotificationWithDelay(notification: any): Promise<any
       .insert({
         email_account_id: emailAccount.id,
         message_id: messageId,
-        subject: 'Processing Scheduled...',
-        sender_email: 'system@delayed',
-        original_body: 'Email scheduled for delayed AI processing to preserve notifications...',
-        status: 'pending', // Use existing allowed status instead of 'scheduled'
+        subject: 'Processing...',
+        sender_email: 'system@processing',
+        original_body: 'Processing email with notification preservation...',
+        status: 'pending',
         tokens_used: 0,
         created_at: new Date().toISOString()
       })
@@ -295,35 +295,26 @@ async function processEmailNotificationWithDelay(notification: any): Promise<any
       return { status: 'error', reason: 'Database insert failed', messageId: messageId.substring(0, 15) + '...' };
     }
 
-    // 🚀 SCHEDULE DELAYED AI PROCESSING
-    const delayMs = getProcessingDelay(emailAccount.client_id);
-    console.log(`⏰ Scheduling AI processing in ${delayMs/1000} seconds to preserve notifications...`);
-    
-    const timeoutId = setTimeout(async () => {
-      try {
-        console.log(`🚀 Starting delayed AI processing for: ${messageId}`);
-        // Pass the full email account data and all needed info
-        await processEmailWithAI(messageId, emailAccount, emailLog.id, clientState);
-      } catch (delayedError) {
-        console.error('❌ Delayed processing error:', delayedError);
-        await updateEmailLogStatus(emailLog.id, 'error', `Delayed processing failed: ${delayedError instanceof Error ? delayedError.message : 'Unknown error'}`);
-      } finally {
-        // Clean up scheduled task
-        scheduledProcessing.delete(cacheKey);
-        processingCache.set(cacheKey, { timestamp: Date.now(), action: 'delayed_processing_completed' });
-      }
-    }, delayMs);
-
-    // Track the scheduled task
-    scheduledProcessing.set(cacheKey, timeoutId);
-
-    return { 
-      status: 'pending_delayed', 
-      reason: `AI processing scheduled in ${delayMs/1000} seconds (status: pending)`,
-      messageId: messageId.substring(0, 15) + '...',
-      delaySeconds: delayMs / 1000,
-      scheduledAt: new Date(Date.now() + delayMs).toISOString()
-    };
+    // Process immediately but with enhanced unread preservation
+    try {
+      await processEmailWithAI(messageId, emailAccount, emailLog.id, clientState);
+      
+      return { 
+        status: 'success', 
+        reason: 'AI processing completed with notification preservation',
+        messageId: messageId.substring(0, 15) + '...'
+      };
+    } catch (processingError) {
+      console.error('❌ Immediate processing error:', processingError);
+      await updateEmailLogStatus(emailLog.id, 'error', `Processing failed: ${processingError instanceof Error ? processingError.message : 'Unknown error'}`);
+      
+      return { 
+        status: 'error', 
+        reason: 'AI processing failed',
+        messageId: messageId.substring(0, 15) + '...',
+        error: processingError instanceof Error ? processingError.message : 'Unknown error'
+      };
+    }
 
   } catch (error) {
     console.error('❌ Notification processing error:', error);
