@@ -518,7 +518,54 @@ export class GraphService {
       throw error;
     }
   }
+  async deleteSpecificSubscription(subscriptionId: string): Promise<void> {
+  try {
+    console.log(`🗑️ Deleting subscription: ${subscriptionId}`);
+    
+    await this.client
+      .api(`/subscriptions/${subscriptionId}`)
+      .delete();
+    
+    console.log(`✅ Successfully deleted subscription: ${subscriptionId}`);
+  } catch (error) {
+    console.error(`❌ Failed to delete subscription ${subscriptionId}:`, error);
+    throw error;
+  }
+}
 
+/**
+ * 🗑️ Delete all subscriptions with broad resource paths
+ */
+async deleteAllBadSubscriptions(): Promise<{ deletedCount: number; errors: any[] }> {
+  try {
+    console.log('🗑️ Deleting all bad subscriptions...');
+    
+    // Get all subscriptions
+    const allSubs = await this.client.api('/subscriptions').get();
+    
+    let deletedCount = 0;
+    let errors = [];
+    
+    for (const sub of allSubs.value || []) {
+      // Delete if resource is too broad
+      if (sub.resource === '/me/messages' || sub.resource === 'me/messages') {
+        try {
+          await this.client.api(`/subscriptions/${sub.id}`).delete();
+          console.log(`✅ Deleted bad subscription: ${sub.id}`);
+          deletedCount++;
+        } catch (err: any) {
+          console.error(`❌ Failed to delete ${sub.id}:`, err);
+          errors.push({ id: sub.id, error: err.message });
+        }
+      }
+    }
+    
+    return { deletedCount, errors };
+  } catch (error) {
+    console.error('❌ Bulk deletion failed:', error);
+    throw error;
+  }
+}
   /**
    * 🔍 DEBUG: List all current subscriptions
    */
