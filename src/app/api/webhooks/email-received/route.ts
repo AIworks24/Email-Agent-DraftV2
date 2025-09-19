@@ -302,10 +302,11 @@ async function processEmailNotificationWithDelay(notification: any): Promise<any
     const timeoutId = setTimeout(async () => {
       try {
         console.log(`🚀 Starting delayed AI processing for: ${messageId}`);
-        await processEmailWithAI(messageId, emailAccount, emailLog.id);
+        // Pass the full email account data and all needed info
+        await processEmailWithAI(messageId, emailAccount, emailLog.id, clientState);
       } catch (delayedError) {
         console.error('❌ Delayed processing error:', delayedError);
-        await updateEmailLogStatus(emailLog.id, 'error', `Delayed processing failed: ${delayedError.message}`);
+        await updateEmailLogStatus(emailLog.id, 'error', `Delayed processing failed: ${delayedError instanceof Error ? delayedError.message : 'Unknown error'}`);
       } finally {
         // Clean up scheduled task
         scheduledProcessing.delete(cacheKey);
@@ -350,14 +351,26 @@ function getProcessingDelay(clientId: string): number {
 /**
  * 🤖 Process email with AI after delay
  */
-async function processEmailWithAI(messageId: string, emailAccount: any, emailLogId: string) {
+async function processEmailWithAI(messageId: string, emailAccount: any, emailLogId: string, clientState?: string) {
   if (!supabase || !anthropicApiKey) {
     console.error('❌ Required services not configured');
+    await updateEmailLogStatus(emailLogId, 'error', 'Required services not configured');
     return;
   }
 
   try {
     console.log('🤖 Starting AI processing for delayed email:', messageId);
+    console.log('📧 Email account info:', {
+      id: emailAccount.id,
+      email: emailAccount.email_address,
+      client_id: emailAccount.client_id,
+      is_active: emailAccount.is_active
+    });
+
+    // Validate email account
+    if (!emailAccount || !emailAccount.id || !emailAccount.is_active) {
+      throw new Error(`Email account validation failed: ${JSON.stringify(emailAccount)}`);
+    }
 
     // Initialize Graph service
     const { getValidAccessToken } = await import('@/lib/tokenRefresh');
@@ -398,7 +411,7 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
     
   } catch (error) {
     console.error('❌ Delayed AI processing error:', error);
-    await updateEmailLogStatus(emailLogId, 'error', `Delayed processing error: ${error.message}`);
+    await updateEmailLogStatus(emailLogId, 'error', `Delayed processing error: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
