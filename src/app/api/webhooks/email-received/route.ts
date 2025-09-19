@@ -399,15 +399,15 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       })
       .eq('id', emailLogId);
 
-    // Generate AI response and create draft
-    await generateAndCreateDraftReplyDelayed(
+    // Generate AI response and create draft using the ORIGINAL working function
+    const aiResult = await generateAndCreateDraftReplyDelayed(
       emailDetails,
       emailAccount,
       emailLogId,
       graphService
     );
 
-    console.log('🎉 Delayed AI processing completed successfully');
+    console.log('🎉 Delayed AI processing completed successfully with result:', aiResult);
     
   } catch (error) {
     console.error('❌ Delayed AI processing error:', error);
