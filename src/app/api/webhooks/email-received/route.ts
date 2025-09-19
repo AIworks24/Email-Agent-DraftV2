@@ -1,5 +1,5 @@
 // Enhanced: src/app/api/webhooks/email-received/route.ts
-// Fixed threading and signature handling
+// Added intelligent delay system for natural notification flow
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
@@ -15,19 +15,43 @@ const supabase = (supabaseUrl && supabaseServiceKey)
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
+// Enhanced duplicate prevention with action-specific caching
+const processingCache = new Map<string, { timestamp: number; action: string }>();
+const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+
+// 🚀 NEW: Scheduled AI processing queue
+const scheduledProcessing = new Map<string, NodeJS.Timeout>();
+
+// Clean up cache and scheduled tasks periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, data] of processingCache.entries()) {
+    if (now - data.timestamp > CACHE_DURATION) {
+      processingCache.delete(key);
+    }
+  }
+  
+  // Clean up expired scheduled tasks
+  for (const [key, timeout] of scheduledProcessing.entries()) {
+    const parts = key.split('-');
+    const timestamp = parseInt(parts[parts.length - 1]);
+    if (now - timestamp > 5 * 60 * 1000) { // 5 minutes old
+      clearTimeout(timeout);
+      scheduledProcessing.delete(key);
+    }
+  }
+}, 60000);
+
 export async function POST(request: NextRequest) {
   if (!supabase) {
     return NextResponse.json(
-      {
-        error: 'Service not configured',
-        message: 'Environment variables not set'
-      },
+      { error: 'Service not configured', message: 'Environment variables not set' },
       { status: 503 }
     );
   }
 
   try {
-    // Check if this is a validation request
+    // Handle validation requests
     const url = new URL(request.url);
     const validationToken = url.searchParams.get('validationToken');
     
@@ -42,7 +66,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    console.log('📧 Webhook notification received - processing email notifications');
+    console.log('📧 Webhook notification received');
 
     const body = await request.json();
     const notifications = body.value;
@@ -54,23 +78,27 @@ export async function POST(request: NextRequest) {
 
     console.log(`📧 Processing ${notifications.length} notifications`);
 
-    // Process each notification
+    // Process notifications with enhanced filtering and delay
+    const results = [];
     for (const notification of notifications) {
-      await processEmailNotification(notification);
+      const result = await processEmailNotificationWithDelay(notification);
+      results.push(result);
     }
 
     return NextResponse.json({
       status: 'processed',
       count: notifications.length,
+      processed: results.filter(r => r.status === 'scheduled' || r.status === 'success').length,
+      scheduled: results.filter(r => r.status === 'scheduled').length,
+      skipped: results.filter(r => r.status?.includes('skipped') || r.status?.includes('duplicate')).length,
+      errors: results.filter(r => r.status === 'error').length,
+      results,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error('❌ Webhook processing error:', error);
     return NextResponse.json(
-      {
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Internal server error', message: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
@@ -82,7 +110,7 @@ export async function GET(request: NextRequest) {
     const validationToken = searchParams.get('validationToken');
 
     if (validationToken) {
-      console.log('📧 Webhook validation via GET requested');
+      console.log('📧 Webhook validation via GET');
       return new NextResponse(validationToken, {
         status: 200,
         headers: { 
@@ -94,9 +122,16 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       status: 'OK',
-      endpoint: 'email-webhook',
+      endpoint: 'email-webhook-with-delay',
       timestamp: new Date().toISOString(),
-      message: 'Webhook endpoint is ready to receive notifications'
+      message: 'Enhanced webhook endpoint ready with notification-preserving delays',
+      cacheSize: processingCache.size,
+      scheduledTasks: scheduledProcessing.size,
+      activeCacheEntries: Array.from(processingCache.entries()).map(([key, data]) => ({
+        id: key.substring(0, 20) + '...',
+        age: Math.round((Date.now() - data.timestamp) / 1000) + 's',
+        action: data.action
+      }))
     });
   } catch (error) {
     console.error('❌ Webhook GET error:', error);
@@ -104,346 +139,336 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function processEmailNotification(notification: any) {
-  if (!supabase) {
-    console.error('❌ Supabase not configured');
-    return;
-  }
-
+/**
+ * 🚀 ENHANCED: Process notifications with intelligent delay for natural notifications
+ */
+async function processEmailNotificationWithDelay(notification: any): Promise<any> {
   try {
-    console.log('🔄 Processing notification:', {
-      resource: notification.resource,
-      changeType: notification.changeType,
-      clientState: notification.clientState
+    const { resource, clientState, changeType, resourceData } = notification;
+
+    console.log('🔍 Analyzing notification:', {
+      changeType,
+      resource: resource?.substring(0, 50) + '...',
+      clientState: clientState?.substring(0, 20) + '...',
+      hasResourceData: !!resourceData
     });
 
-    const { resource, clientState, changeType } = notification;
-
-    // Only process new emails
+    // CRITICAL FILTER 1: Only process 'created' notifications
     if (changeType !== 'created') {
-      console.log('⏭️ Skipping non-creation event:', changeType);
-      return;
+      console.log(`⏭️ Ignoring ${changeType} notification (not a new email creation)`);
+      return { 
+        status: 'skipped_by_design', 
+        reason: `Ignoring ${changeType} event - only processing created emails`,
+        changeType 
+      };
     }
 
-    // Find the email account using client state
-    const { data: subscription, error: subError } = await supabase
+    // CRITICAL FILTER 2: Validate resource path
+    if (!resource || !resource.includes('mailFolders') || !resource.includes('Inbox')) {
+      console.log('⏭️ Notification not from Inbox folder:', resource);
+      return { 
+        status: 'skipped_by_design', 
+        reason: 'Not an Inbox message creation',
+        resource: resource?.substring(0, 50) + '...'
+      };
+    }
+
+    // Extract message ID
+    const messageId = resource.split('/').pop();
+    if (!messageId || messageId.length < 10) {
+      console.error('❌ Invalid message ID:', messageId);
+      return { status: 'error', reason: 'Invalid message ID', messageId };
+    }
+
+    // ENHANCED FILTER 3: Multi-layered duplicate prevention
+    const cacheKey = `${messageId}-${clientState}`;
+    const existingEntry = processingCache.get(cacheKey);
+    
+    if (existingEntry) {
+      const ageMinutes = Math.round((Date.now() - existingEntry.timestamp) / 1000 / 60);
+      console.log(`🚫 Recently processed email (${ageMinutes}m ago):`, messageId);
+      return { 
+        status: 'duplicate_prevented_cache', 
+        reason: `Processed ${ageMinutes} minutes ago`,
+        messageId: messageId.substring(0, 15) + '...',
+        previousAction: existingEntry.action
+      };
+    }
+
+    // Mark as being processed
+    processingCache.set(cacheKey, { timestamp: Date.now(), action: 'webhook_received' });
+
+    // ENHANCED FILTER 4: Database duplicate check
+    const { data: existingLog, error: checkError } = await supabase!
+      .from('email_logs')
+      .select('id, status, created_at, ai_response')
+      .eq('message_id', messageId)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error('❌ Database check error:', checkError);
+      processingCache.delete(cacheKey);
+      return { status: 'error', reason: 'Database error', messageId: messageId.substring(0, 15) + '...' };
+    }
+
+    if (existingLog) {
+      const existingAge = Math.round((Date.now() - new Date(existingLog.created_at).getTime()) / 1000 / 60);
+      console.log(`🚫 Email already in database (${existingAge}m ago, status: ${existingLog.status}):`, messageId);
+      processingCache.delete(cacheKey);
+      return { 
+        status: 'duplicate_prevented_database',
+        reason: `Already processed ${existingAge} minutes ago`,
+        messageId: messageId.substring(0, 15) + '...',
+        existingStatus: existingLog.status,
+        hasAiResponse: !!existingLog.ai_response
+      };
+    }
+
+    // Find subscription and email account
+    const { data: subscription, error: subError } = await supabase!
       .from('webhook_subscriptions')
-      .select(
-        `
+      .select(`
         *,
         email_accounts (
           *,
           clients (*)
         )
-      `
-      )
+      `)
       .eq('client_state', clientState)
       .eq('is_active', true)
       .single();
 
     if (subError || !subscription) {
-      console.error('❌ No active subscription found for client state:', clientState);
-      return;
+      console.error('❌ No active subscription found:', clientState);
+      processingCache.delete(cacheKey);
+      return { status: 'error', reason: 'No subscription', clientState: clientState?.substring(0, 20) + '...' };
     }
 
     const emailAccount = subscription.email_accounts;
-    if (!emailAccount || !emailAccount.is_active) {
-      console.error('❌ Email account not found or inactive');
-      return;
+    if (!emailAccount?.is_active) {
+      console.error('❌ Email account inactive');
+      processingCache.delete(cacheKey);
+      return { status: 'error', reason: 'Account inactive' };
     }
 
-    // Extract message ID from resource
-    const messageId = resource.split('/').pop();
-    if (!messageId) {
-      console.error('❌ Could not extract message ID from resource:', resource);
-      return;
-    }
+    console.log('✅ Email passed all validation checks, preparing for DELAYED processing:', messageId);
 
-    console.log('📧 Processing email ID:', messageId);
-
-    // Atomic check and insert to prevent duplicates
-    const { data: emailLog, error: logError } = await supabase
+    // Atomic database insert to claim processing rights
+    const { data: emailLog, error: logError } = await supabase!
       .from('email_logs')
       .insert({
         email_account_id: emailAccount.id,
         message_id: messageId,
-        subject: 'Loading...',
-        sender_email: 'system@processing.temp',
-        original_body: 'Fetching email details...',
-        status: 'pending',
-        tokens_used: 0
+        subject: 'Scheduled for Processing...',
+        sender_email: 'system@scheduled',
+        original_body: 'Email scheduled for AI processing to preserve notifications...',
+        status: 'scheduled',
+        tokens_used: 0,
+        created_at: new Date().toISOString()
       })
       .select()
       .single();
 
     if (logError) {
-      // If insert fails due to duplicate, exit silently
       if (logError.code === '23505') { // Unique constraint violation
-        console.log('⏭️ Email already being processed:', messageId);
-        return;
+        console.log('⏭️ Race condition detected - another process claimed this email');
+        processingCache.delete(cacheKey);
+        return { 
+          status: 'duplicate_prevented_race', 
+          reason: 'Another process is handling this email',
+          messageId: messageId.substring(0, 15) + '...'
+        };
       }
-      console.error('❌ Failed to log email:', logError);
-      return;
+      console.error('❌ Database insert failed:', logError);
+      processingCache.delete(cacheKey);
+      return { status: 'error', reason: 'Database insert failed', messageId: messageId.substring(0, 15) + '...' };
     }
 
-    console.log('✅ Email processing started:', messageId);
+    // 🚀 SCHEDULE DELAYED AI PROCESSING
+    const delayMs = getProcessingDelay(emailAccount.client_id);
+    console.log(`⏰ Scheduling AI processing in ${delayMs/1000} seconds to preserve notifications...`);
+    
+    const timeoutId = setTimeout(async () => {
+      try {
+        console.log(`🚀 Starting delayed AI processing for: ${messageId}`);
+        await processEmailWithAI(messageId, emailAccount, emailLog.id);
+      } catch (delayedError) {
+        console.error('❌ Delayed processing error:', delayedError);
+        await updateEmailLogStatus(emailLog.id, 'error', `Delayed processing failed: ${delayedError.message}`);
+      } finally {
+        // Clean up scheduled task
+        scheduledProcessing.delete(cacheKey);
+        processingCache.set(cacheKey, { timestamp: Date.now(), action: 'delayed_processing_completed' });
+      }
+    }, delayMs);
 
-    // Get email details using Microsoft Graph with token refresh
-    let graphService;
-    try {
-      const { getValidAccessToken } = await import('@/lib/tokenRefresh');
-      const validToken = await getValidAccessToken(emailAccount.id);
-      graphService = new GraphService(validToken);
-    } catch (tokenError) {
-      console.error('❌ Token refresh failed:', tokenError);
-      // Mark email as error due to token issues
-      await supabase
-        .from('email_logs')
-        .update({ 
-          status: 'error', 
-          ai_response: 'Token refresh failed - client needs to re-authenticate' 
-        })
-        .eq('id', emailLog.id);
-      return;
-    }
+    // Track the scheduled task
+    scheduledProcessing.set(cacheKey, timeoutId);
 
-    let emailDetails;
-    try {
-      emailDetails = await graphService.getEmailDetails(messageId);
-    } catch (graphError) {
-      console.error('❌ Failed to fetch email details:', graphError);
-      await supabase
-        .from('email_logs')
-        .update({ 
-          status: 'error', 
-          ai_response: 'Failed to fetch email details from Microsoft Graph' 
-        })
-        .eq('id', emailLog.id);
-      return;
-    }
-
-    if (!emailDetails) {
-      console.error('❌ Email details not found for:', messageId);
-      await supabase
-        .from('email_logs')
-        .update({ 
-          status: 'error', 
-          ai_response: 'Email not found' 
-        })
-        .eq('id', emailLog.id);
-      return;
-    }
-
-    console.log('📧 Email details fetched:', emailDetails.subject);
-
-    // Update with actual email details
-    await supabase
-      .from('email_logs')
-      .update({
-        subject: emailDetails.subject || '',
-        sender_email: extractEmailAddress(emailDetails.from),
-        original_body: sanitizeEmailContent(emailDetails.body?.content || ''),
-        status: 'processing'
-      })
-      .eq('id', emailLog.id);
-
-    // Generate AI response and create draft (only if API key is available)
-    if (anthropicApiKey) {
-      await generateAndCreateDraftReply(
-        emailDetails,
-        emailAccount,
-        emailLog.id,
-        graphService
-      );
-    } else {
-      console.log('⚠️ Anthropic API key not configured - skipping AI response generation');
-      await supabase
-        .from('email_logs')
-        .update({
-          status: 'skipped',
-          ai_response: 'AI response generation disabled - API key not configured'
-        })
-        .eq('id', emailLog.id);
-    }
-  } catch (error) {
-    console.error('❌ Error processing email notification:', error);
-
-    // Log the error
-    try {
-      await supabase
-        ?.from('email_logs')
-        .insert({
-          email_account_id: 'unknown',
-          message_id: 'unknown',
-          subject: 'Processing Error',
-          sender_email: 'system',
-          original_body: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          status: 'error'
-        });
-    } catch (logError) {
-      console.error('❌ Failed to log error:', logError);
-    }
-  }
-}
-
-async function getClientTemplate(clientId: string) {
-  try {
-    if (!supabase) return null;
-
-    // Get client info
-    const { data: client, error: clientError } = await supabase
-      .from('clients')
-      .select('id, name, email')
-      .eq('id', clientId)
-      .single();
-
-    if (clientError) {
-      console.error('❌ Failed to get client:', clientError);
-      return null;
-    }
-
-    // Get email template settings
-    const { data: template } = await supabase
-      .from('email_templates')
-      .select('*')
-      .eq('client_id', clientId)
-      .eq('name', 'Default Template')
-      .single();
-
-    // Return template with defaults
-    return {
-      writingStyle: template?.writing_style || 'professional',
-      tone: template?.tone || 'friendly',
-      signature: template?.signature || `Best regards,\n${client?.name || ''}`,
-      sampleEmails: template?.sample_emails || [],
-      autoResponse: template?.auto_response !== false,
-      responseDelay: template?.response_delay || 0
+    return { 
+      status: 'scheduled', 
+      reason: `AI processing scheduled in ${delayMs/1000} seconds`,
+      messageId: messageId.substring(0, 15) + '...',
+      delaySeconds: delayMs / 1000,
+      scheduledAt: new Date(Date.now() + delayMs).toISOString()
     };
+
   } catch (error) {
-    console.error('❌ Error getting client template:', error);
-    return {
-      writingStyle: 'professional',
-      tone: 'friendly',
-      signature: 'Best regards',
-      sampleEmails: [],
-      autoResponse: true,
-      responseDelay: 0
+    console.error('❌ Notification processing error:', error);
+    return { 
+      status: 'error', 
+      reason: error instanceof Error ? error.message : 'Unknown error' 
     };
   }
 }
 
-async function generateAndCreateDraftReply(
-  emailDetails: any,
-  emailAccount: any,
-  emailLogId: string,
-  graphService: any
-) {
+/**
+ * 🎯 Get processing delay based on client settings or default
+ */
+function getProcessingDelay(clientId: string): number {
+  // Default delay: 45-60 seconds (randomized to avoid patterns)
+  const baseDelay = 45 * 1000; // 45 seconds
+  const randomExtra = Math.random() * 15 * 1000; // 0-15 seconds extra
+  
+  // TODO: Could be made configurable per client in database
+  // For now, use consistent delay to preserve notifications
+  
+  return baseDelay + randomExtra; // 45-60 seconds
+}
+
+/**
+ * 🤖 Process email with AI after delay
+ */
+async function processEmailWithAI(messageId: string, emailAccount: any, emailLogId: string) {
   if (!supabase || !anthropicApiKey) {
     console.error('❌ Required services not configured');
     return;
   }
 
   try {
-    console.log('🤖 Generating AI response for email:', emailDetails.subject);
+    console.log('🤖 Starting AI processing for delayed email:', messageId);
 
-    // Get client template with settings from database
-    const clientTemplate = await getClientTemplate(emailAccount.client_id);
+    // Initialize Graph service
+    const { getValidAccessToken } = await import('@/lib/tokenRefresh');
+    const validToken = await getValidAccessToken(emailAccount.id);
+    const graphService = new GraphService(validToken);
 
-    if (!clientTemplate) {
-      console.error('❌ Client template not available; aborting AI generation');
-      await supabase
-        .from('email_logs')
-        .update({
-          status: 'error',
-          ai_response: 'Failed to load client settings/template'
-        })
-        .eq('id', emailLogId);
+    // Fetch email details (read-only operation)
+    const emailDetails = await graphService.getEmailDetailsPreservingNotifications(messageId);
+    
+    if (!emailDetails) {
+      await updateEmailLogStatus(emailLogId, 'error', 'Email not found during delayed processing');
       return;
     }
 
-    // Check if auto-response is enabled
+    console.log('📧 Email details retrieved for delayed processing:', emailDetails.subject);
+
+    // Update log with actual email details
+    await supabase!
+      .from('email_logs')
+      .update({
+        subject: emailDetails.subject || 'No subject',
+        sender_email: extractEmailAddress(emailDetails.from),
+        original_body: sanitizeEmailContent(emailDetails.body?.content || ''),
+        status: 'processing',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', emailLogId);
+
+    // Generate AI response and create draft
+    await generateAndCreateDraftReplyDelayed(
+      emailDetails,
+      emailAccount,
+      emailLogId,
+      graphService
+    );
+
+    console.log('🎉 Delayed AI processing completed successfully');
+    
+  } catch (error) {
+    console.error('❌ Delayed AI processing error:', error);
+    await updateEmailLogStatus(emailLogId, 'error', `Delayed processing error: ${error.message}`);
+  }
+}
+
+async function updateEmailLogStatus(logId: string, status: string, aiResponse?: string) {
+  try {
+    await supabase!
+      .from('email_logs')
+      .update({
+        status,
+        ai_response: aiResponse,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', logId);
+  } catch (error) {
+    console.error('❌ Failed to update email log:', error);
+  }
+}
+
+async function generateAndCreateDraftReplyDelayed(
+  emailDetails: any,
+  emailAccount: any,
+  emailLogId: string,
+  graphService: any
+): Promise<void> {
+  if (!supabase || !anthropicApiKey) {
+    return;
+  }
+
+  try {
+    console.log('🤖 Generating delayed AI response for:', emailDetails.subject);
+
+    // Get client template settings
+    const { data: template } = await supabase
+      .from('email_templates')
+      .select('*')
+      .eq('client_id', emailAccount.client_id)
+      .eq('name', 'Default Template')
+      .single();
+
+    const clientTemplate = {
+      writingStyle: template?.writing_style || 'professional',
+      tone: template?.tone || 'friendly',
+      signature: template?.signature || `Best regards,\n${emailAccount.clients?.name || ''}`,
+      sampleEmails: template?.sample_emails || [],
+      autoResponse: template?.auto_response !== false,
+      responseDelay: template?.response_delay || 0
+    };
+
     if (!clientTemplate.autoResponse) {
-      console.log('⏭️ Auto-response disabled for client:', emailAccount.client_id);
-      await supabase
-        .from('email_logs')
-        .update({
-          status: 'skipped',
-          ai_response: 'Auto-response disabled - requires manual review'
-        })
-        .eq('id', emailLogId);
+      await updateEmailLogStatus(emailLogId, 'skipped', 'Auto-response disabled');
       return;
     }
 
-    // Get calendar availability for the next 7 days
-    let calendarAvailability: any = null;
-    try {
-      const startTime = new Date().toISOString();
-      const endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      calendarAvailability = await graphService.getCalendarEvents(startTime, endTime);
-    } catch (calError: any) {
-      console.log('⚠️ Calendar access not available:', calError?.message || calError);
-    }
-
-    // Get conversation history for proper threading
+    // Generate AI response
     const aiProcessor = new AIEmailProcessor(anthropicApiKey);
-    let conversationHistory = '';
-    try {
-      conversationHistory = await aiProcessor.getConversationHistory(emailDetails.id, graphService);
-    } catch (historyError) {
-      console.log('⚠️ Could not get conversation history:', historyError);
-    }
-
-    // Prepare context using client's personalized settings
     const context: EmailContext = {
       subject: emailDetails.subject || '',
       fromEmail: extractEmailAddress(emailDetails.from),
       body: sanitizeEmailContent(emailDetails.body?.content || ''),
-      conversationHistory: conversationHistory,
-      originalMessage: emailDetails, // Pass full message for threading
-      clientTemplate: {
-        writingStyle: clientTemplate.writingStyle,
-        tone: clientTemplate.tone,
-        signature: clientTemplate.signature,
-        sampleEmails: clientTemplate.sampleEmails
-      },
-      calendarAvailability: calendarAvailability?.value || null
+      clientTemplate,
+      conversationHistory: '',
+      calendarAvailability: null
     };
 
-    // Generate AI response (without signature - it will be added by Graph service)
     const aiResponse = await aiProcessor.generateResponse(context);
-    console.log('🤖 AI response generated using client preferences');
-
-    // Create draft reply in Outlook with proper threading and signature
-    const draftReply = await graphService.createDraftReply(
+    
+    // 🚀 Create draft with the FIXED method that preserves unread status
+    await graphService.createDraftReply(
       emailDetails.id,
       aiResponse,
-      clientTemplate.signature, // Pass signature separately
-      false // Reply to sender only, not reply-all
+      clientTemplate.signature,
+      false
     );
 
-    console.log('✅ Draft reply created with threading and signature:', draftReply?.id);
+    // Update database
+    await updateEmailLogStatus(emailLogId, 'draft_created', aiResponse);
+    
+    console.log('✅ Delayed draft created successfully with notifications preserved');
 
-    // Log successful processing
-    await supabase
-      .from('email_logs')
-      .update({
-        ai_response: aiResponse,
-        status: 'draft_created',
-        tokens_used: estimateTokens(aiResponse)
-      })
-      .eq('id', emailLogId);
-
-    console.log('🎉 Email processing completed with personalized AI response');
   } catch (error) {
-    console.error('❌ Error generating personalized AI response:', error);
-
-    // Update status to error
-    await supabase
-      .from('email_logs')
-      .update({
-        status: 'error',
-        ai_response: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
-      })
-      .eq('id', emailLogId);
+    console.error('❌ Delayed AI processing error:', error);
+    await updateEmailLogStatus(emailLogId, 'error', `Delayed AI error: ${error instanceof Error ? error.message : 'Unknown'}`);
   }
 }
