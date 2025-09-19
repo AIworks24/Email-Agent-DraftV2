@@ -163,15 +163,26 @@ async function processEmailNotificationWithDelay(notification: any): Promise<any
       };
     }
 
-    // CRITICAL FILTER 2: Validate resource path
-    if (!resource || !resource.includes('mailFolders') || !resource.includes('Inbox')) {
-      console.log('⏭️ Notification not from Inbox folder:', resource);
+    // CRITICAL FILTER 2: Validate resource path (Microsoft Graph sends different formats)
+    // Subscription: /me/mailFolders('Inbox')/messages 
+    // Notification: Users/{userId}/Messages/{messageId}
+    const isMessageResource = resource && (
+      resource.includes('Messages') ||  // Handles: Users/.../Messages/...
+      resource.includes('messages') ||  // Handles: /me/.../messages
+      resource.includes('/messages/') ||
+      resource.includes('/Messages/')
+    );
+
+    if (!isMessageResource) {
+      console.log('⏭️ Notification not a message resource:', resource);
       return { 
         status: 'skipped_by_design', 
-        reason: 'Not an Inbox message creation',
-        resource: resource?.substring(0, 50) + '...'
+        reason: 'Not a message resource',
+        resource: resource?.substring(0, 100) + '...'
       };
     }
+
+    console.log('✅ Message resource validated:', resource?.substring(0, 80) + '...');
 
     // Extract message ID
     const messageId = resource.split('/').pop();
