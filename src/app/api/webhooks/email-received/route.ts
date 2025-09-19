@@ -88,8 +88,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       status: 'processed',
       count: notifications.length,
-      processed: results.filter(r => r.status === 'scheduled' || r.status === 'success').length,
-      scheduled: results.filter(r => r.status === 'scheduled').length,
+      processed: results.filter(r => r.status === 'pending_delayed' || r.status === 'success').length,
+      scheduled: results.filter(r => r.status === 'pending_delayed').length,
       skipped: results.filter(r => r.status?.includes('skipped') || r.status?.includes('duplicate')).length,
       errors: results.filter(r => r.status === 'error').length,
       results,
@@ -270,10 +270,10 @@ async function processEmailNotificationWithDelay(notification: any): Promise<any
       .insert({
         email_account_id: emailAccount.id,
         message_id: messageId,
-        subject: 'Scheduled for Processing...',
-        sender_email: 'system@scheduled',
-        original_body: 'Email scheduled for AI processing to preserve notifications...',
-        status: 'scheduled',
+        subject: 'Processing Scheduled...',
+        sender_email: 'system@delayed',
+        original_body: 'Email scheduled for delayed AI processing to preserve notifications...',
+        status: 'pending', // Use existing allowed status instead of 'scheduled'
         tokens_used: 0,
         created_at: new Date().toISOString()
       })
@@ -317,8 +317,8 @@ async function processEmailNotificationWithDelay(notification: any): Promise<any
     scheduledProcessing.set(cacheKey, timeoutId);
 
     return { 
-      status: 'scheduled', 
-      reason: `AI processing scheduled in ${delayMs/1000} seconds`,
+      status: 'pending_delayed', 
+      reason: `AI processing scheduled in ${delayMs/1000} seconds (status: pending)`,
       messageId: messageId.substring(0, 15) + '...',
       delaySeconds: delayMs / 1000,
       scheduledAt: new Date(Date.now() + delayMs).toISOString()
