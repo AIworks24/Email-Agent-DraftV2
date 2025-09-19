@@ -27,9 +27,13 @@ export class GraphService {
     try {
       console.log('Creating threaded draft reply for message:', messageId);
       
-      // First, get the original message to understand the thread
+      // First, get the original message to understand the thread AND capture its read status
       const originalMessage = await this.getEmailDetailsPreservingNotifications(messageId);
       console.log('Original message subject:', originalMessage?.subject);
+      
+      // 🔍 CRITICAL: Capture the original read status BEFORE creating draft
+      const wasOriginallyRead = originalMessage?.isRead;
+      console.log('📧 Original email read status:', wasOriginallyRead);
       
       // Create the reply draft using Microsoft Graph
       const endpoint = replyAll 
@@ -41,6 +45,27 @@ export class GraphService {
         .post({});
 
       console.log('Draft created with ID:', draft.id);
+
+      // 🚨 CRITICAL FIX: Microsoft Graph marks original email as read when creating reply
+      // We need to restore the original read status to preserve notifications
+      if (!wasOriginallyRead) {
+        console.log('📧 Restoring original email to unread status for notifications...');
+        
+        try {
+          await this.client
+            .api(`/me/messages/${messageId}`)
+            .patch({
+              isRead: false
+            });
+          
+          console.log('✅ Original email marked back as unread - notifications preserved');
+        } catch (unreadError) {
+          console.error('❌ Failed to restore unread status:', unreadError);
+          // Don't throw - draft was created successfully
+        }
+      } else {
+        console.log('📧 Original email was already read - no status change needed');
+      }
 
       // Prepare the complete email body with signature
       const completeEmailBody = this.buildCompleteEmailBody(replyContent, signature, originalMessage);
@@ -55,7 +80,7 @@ export class GraphService {
           }
         });
 
-      console.log('✅ Draft created successfully while preserving email notification status');
+      console.log('✅ Draft created successfully with notifications preserved');
       return updatedDraft;
     } catch (error) {
       console.error('Error creating draft reply:', error);
