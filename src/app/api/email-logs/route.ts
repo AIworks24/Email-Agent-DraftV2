@@ -46,21 +46,36 @@ export async function GET() {
       .limit(50);
 
     if (error) {
+      console.error('Email logs query error:', error);
       return NextResponse.json({ logs: [] });
     }
 
-    const transformedLogs = (logs as EmailLog[])?.map((log: EmailLog) => ({
+    const transformedLogs = (logs as any[])?.map((log: any) => ({
       id: log.id,
       created_at: log.created_at,
-      subject: log.subject,
-      sender_email: log.sender_email,
+      subject: log.subject || 'No subject',
+      // FIX: Handle both field names for sender email
+      sender_email: log.sender_email || log.from_email || 'Unknown sender',
       status: log.status,
       ai_response: log.ai_response,
-      client: log.email_accounts?.clients
+      client: {
+        id: log.email_accounts?.clients?.id,
+        name: log.email_accounts?.clients?.name || 'Unknown Client'
+      }
     })) || [];
 
-    return NextResponse.json({ logs: transformedLogs });
+    console.log(`Returning ${transformedLogs.length} email logs`);
+    return NextResponse.json({ 
+      logs: transformedLogs,
+      total: transformedLogs.length,
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
-    return NextResponse.json({ logs: [] });
+    console.error('Email logs API error:', error);
+    return NextResponse.json({ 
+      logs: [], 
+      error: 'Failed to fetch email logs',
+      timestamp: new Date().toISOString()
+    });
   }
 }

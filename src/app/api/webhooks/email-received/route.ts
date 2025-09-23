@@ -272,6 +272,7 @@ async function processEmailNotificationWithDelay(notification: any): Promise<any
         message_id: messageId,
         subject: 'Processing...',
         sender_email: 'system@processing',
+        from_email: 'system@processing',
         original_body: 'Processing email with notification preservation...',
         status: 'pending',
         tokens_used: 0,
@@ -384,6 +385,7 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       .update({
         subject: emailDetails.subject || 'No subject',
         sender_email: extractEmailAddress(emailDetails.from),
+        from_email: extractEmailAddress(emailDetails.from),
         original_body: sanitizeEmailContent(emailDetails.body?.content || ''),
         status: 'processing',
         updated_at: new Date().toISOString()

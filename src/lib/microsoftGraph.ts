@@ -156,7 +156,7 @@ export class GraphService {
     if (!htmlContent) return '';
     
     if (preserveFormatting) {
-      // Preserve formatting - only remove dangerous/excessive elements
+      // ENHANCED: Better formatting preservation
       let cleaned = htmlContent
         // Remove potentially dangerous elements
         .replace(/<script[^>]*>.*?<\/script>/gi, '')
@@ -168,14 +168,13 @@ export class GraphService {
         .replace(/<!--\[if[^>]*>.*?<!\[endif\]-->/gi, '')
         .replace(/<o:p[^>]*>.*?<\/o:p>/gi, '')
         .replace(/<v:[^>]*>.*?<\/v:[^>]*>/gi, '')
-        .replace(/mso-[^;]*;?/gi, '')
         
-        // Remove excessive inline styles but keep basic ones
-        .replace(/style\s*=\s*"[^"]*?(font-family|color|background|text-align|font-size|font-weight)[^"]*"/gi, (match) => {
-          // Keep only basic formatting styles
-          const basicStyles = match.match(/(font-family|color|background-color|text-align|font-size|font-weight|margin|padding):[^;]*;?/gi);
-          if (basicStyles) {
-            return `style="${basicStyles.join(' ').trim()}"`;
+        // IMPROVED: Remove excessive Microsoft styles but keep essential formatting
+        .replace(/style\s*=\s*"[^"]*"/gi, (match) => {
+          // Keep only essential formatting styles
+          const essentialStyles = match.match(/(font-family|font-size|font-weight|color|background-color|text-align|margin|padding|border):[^;]*;?/gi);
+          if (essentialStyles && essentialStyles.length > 0) {
+            return `style="${essentialStyles.join(' ').trim()}"`;
           }
           return '';
         })
@@ -183,14 +182,16 @@ export class GraphService {
         // Remove empty style attributes
         .replace(/\s*style\s*=\s*["']?\s*["']?/gi, '')
         
-        // Clean up excessive whitespace but preserve paragraph breaks
-        .replace(/\s*\n\s*/g, ' ')
-        .replace(/(<\/p>\s*<p[^>]*>)/gi, '</p><p>')
-        .replace(/(<\/div>\s*<div[^>]*>)/gi, '</div><div>')
+        // PRESERVE: Keep paragraph and div structure
+        .replace(/\s*\n\s*/g, ' ') // Clean line breaks but keep structure
         
-        // Ensure proper paragraph spacing
-        .replace(/<p([^>]*)>\s*<\/p>/gi, '<br>') // Replace empty paragraphs with breaks
-        .replace(/<div([^>]*)>\s*<\/div>/gi, '<br>'); // Replace empty divs with breaks
+        // PRESERVE: Maintain email structure elements
+        .replace(/<div([^>]*)>\s*<\/div>/gi, '<br>') // Empty divs become breaks
+        .replace(/<p([^>]*)>\s*<\/p>/gi, '<br>')     // Empty paragraphs become breaks
+        
+        // ENHANCE: Better spacing for readability
+        .replace(/(<\/p>\s*<p[^>]*>)/gi, '</p><br><p>') // Add breaks between paragraphs
+        .replace(/(<\/div>\s*<div[^>]*>)/gi, '</div><br><div>'); // Add breaks between divs
       
       return cleaned;
     } else {
@@ -209,8 +210,8 @@ export class GraphService {
       // Remove excessive whitespace and truncate if too long
       cleaned = cleaned.replace(/\s+/g, ' ').trim();
       
-      if (cleaned.length > 2000) {
-        cleaned = cleaned.substring(0, 2000) + '...<br><em>[Message truncated]</em>';
+      if (cleaned.length > 3000) {
+        cleaned = cleaned.substring(0, 3000) + '...<br><em>[Message truncated]</em>';
       }
       
       return cleaned;
