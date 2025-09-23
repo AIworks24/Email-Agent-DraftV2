@@ -1,8 +1,7 @@
-// Fixed: src/app/api/clients/[id]/settings/route.ts
-// Add dynamic export to prevent static generation
-
+// src/app/api/clients/[id]/settings/route.ts - Fixed variable scoping
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { settingsSchema, safeValidate } from '@/lib/validation';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -18,7 +17,19 @@ export async function PUT(
 ) {
   try {
     const clientId = params.id;
-    const settings = await request.json();
+    const rawSettings = await request.json();
+
+    // ADD SAFE VALIDATION (doesn't break on failure)
+    const validation = safeValidate(settingsSchema, rawSettings);
+    let settings: any; // Fix: Declare settings in proper scope
+    
+    if (!validation.success) {
+      console.warn('Settings validation failed:', validation.errors);
+      // Continue with unvalidated data for backward compatibility
+      settings = rawSettings;
+    } else {
+      settings = validation.data;
+    }
 
     // Check if template exists for this client
     const { data: existing } = await supabase

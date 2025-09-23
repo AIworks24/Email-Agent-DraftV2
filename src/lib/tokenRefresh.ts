@@ -3,6 +3,7 @@
 
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { createClient } from '@supabase/supabase-js';
+import { encryptToken, decryptToken } from './encryption';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,6 +17,11 @@ const msalConfig = {
     authority: 'https://login.microsoftonline.com/common'
   }
 };
+
+// Helper function to get decrypted refresh token
+async function getDecryptedRefreshToken(emailAccount: any): Promise<string> {
+  return decryptToken(emailAccount.refresh_token || '');
+}
 
 export async function refreshAccessToken(emailAccountId: string): Promise<string> {
   try {
@@ -45,7 +51,7 @@ export async function refreshAccessToken(emailAccountId: string): Promise<string
 
     // Use refresh token to get new access token
     const refreshTokenRequest = {
-      refreshToken: emailAccount.refresh_token,
+      refreshToken: decryptToken(emailAccount.refresh_token), // SAFE: Decrypt for use
       scopes: [
         'https://graph.microsoft.com/Mail.Read',
         'https://graph.microsoft.com/Mail.ReadWrite', 
@@ -72,8 +78,10 @@ export async function refreshAccessToken(emailAccountId: string): Promise<string
       .from('email_accounts')
       .update({
         access_token: response.accessToken,
-        // Always update refresh token if provided, otherwise keep the existing one
-        refresh_token: responseAny.refreshToken || emailAccount.refresh_token,
+        // SAFE CHANGE: Encrypt new refresh token, decrypt old one for comparison
+        refresh_token: responseAny.refreshToken 
+          ? encryptToken(responseAny.refreshToken) 
+          : emailAccount.refresh_token,
         updated_at: new Date().toISOString()
       })
       .eq('id', emailAccountId);

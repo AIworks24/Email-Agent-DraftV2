@@ -12,28 +12,29 @@
     "audit-fix": "npm audit fix --force"
   },
   "dependencies": {
-    "next": "14.2.32",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "@supabase/supabase-js": "2.39.8",
     "@azure/msal-node": "2.15.0",
     "@microsoft/microsoft-graph-client": "3.0.7",
-    "jsonwebtoken": "9.0.2",
-    "uuid": "10.0.0",
+    "@supabase/supabase-js": "2.39.8",
     "@tailwindcss/forms": "^0.5.9",
-    "tailwindcss": "^3.4.14",
     "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.49"
+    "jsonwebtoken": "9.0.2",
+    "next": "14.2.32",
+    "postcss": "^8.4.49",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwindcss": "^3.4.14",
+    "uuid": "10.0.0",
+    "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@types/jsonwebtoken": "9.0.7",
     "@types/node": "20.17.6",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
-    "@types/jsonwebtoken": "9.0.7",
     "@types/uuid": "10.0.0",
-    "typescript": "5.6.3",
     "eslint": "8.57.1",
-    "eslint-config-next": "14.2.32"
+    "eslint-config-next": "14.2.32",
+    "typescript": "5.6.3"
   },
   "engines": {
     "node": "22.x",

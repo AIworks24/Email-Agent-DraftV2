@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { createClient } from '@supabase/supabase-js';
+import { encryptToken } from '@/lib/encryption';
 
 export const dynamic = 'force-dynamic';
 
@@ -254,7 +255,7 @@ async function handleCallback(request: NextRequest, searchParams: URLSearchParam
       client_id: client.id,
       email_address: userProfile.mail || userProfile.userPrincipalName,
       access_token: response.accessToken,
-      refresh_token: refreshToken,
+      refresh_token: refreshToken ? encryptToken(refreshToken) : refreshToken, // SAFE: Encrypt new tokens only
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
