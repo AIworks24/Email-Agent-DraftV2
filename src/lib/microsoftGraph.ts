@@ -81,12 +81,16 @@ export class GraphService {
         });
 
       console.log('✅ Draft created successfully with notifications preserved');
-      return updatedDraft;
-    } catch (error) {
-      console.error('Error creating draft reply:', error);
-      throw error;
-    }
+      return {
+      ...updatedDraft,
+      draftId: draft.id, // Make sure we include the draft ID
+      originalMessageId: messageId
+    };
+  } catch (error) {
+    console.error('Error creating draft reply:', error);
+    throw error;
   }
+}
 
   /**
    * Build complete email body with signature and threading context
@@ -384,6 +388,41 @@ export class GraphService {
       throw error;
     }
   }
+    /**
+   * Subscribe to email deletion notifications
+   * This creates a separate subscription specifically for delete events
+   */
+  async subscribeToEmailDeletions(webhookUrl: string, clientState: string) {
+    try {
+      console.log('🗑️ Creating email deletion webhook subscription...');
+      
+      // Create subscription specifically for deleted events in Inbox
+      const subscription = {
+        changeType: 'deleted', // ONLY deleted events
+        notificationUrl: webhookUrl,
+        resource: "/me/mailFolders('Inbox')/messages", // Same resource as create subscription
+        expirationDateTime: new Date(Date.now() + 3600000).toISOString(), // 1 hour
+        clientState: `${clientState}-delete`, // Distinguish from create subscription
+        includeResourceData: false
+      };
+
+      console.log('🗑️ Delete subscription configured:', {
+        resource: subscription.resource,
+        changeType: subscription.changeType,
+        clientState: subscription.clientState
+      });
+
+      const result = await this.client
+        .api('/subscriptions')
+        .post(subscription);
+
+      console.log('✅ Email deletion webhook subscription created:', result.id);
+      return result;
+    } catch (error) {
+      console.error('❌ Error creating deletion subscription:', error);
+      throw error;
+    }
+  }
 
   /**
    * Get calendar events with timezone conversion
@@ -590,6 +629,55 @@ async deleteAllBadSubscriptions(): Promise<{ deletedCount: number; errors: any[]
   } catch (error) {
     console.error('❌ Bulk deletion failed:', error);
     throw error;
+  }
+}
+  /**
+ * Delete a specific draft message
+ */
+async deleteDraft(draftMessageId: string): Promise<void> {
+  try {
+    console.log('🗑️ Deleting AI-generated draft:', draftMessageId);
+    
+    // First check if the draft still exists
+    try {
+      await this.client
+        .api(`/me/messages/${draftMessageId}`)
+        .select('id,isDraft')
+        .get();
+    } catch (checkError: any) {
+      if (checkError.code === 'ItemNotFound' || checkError.status === 404) {
+        console.log('⏭️ Draft already deleted or not found:', draftMessageId);
+        return; // Draft doesn't exist, consider it successful
+      }
+      throw checkError; // Re-throw if it's a different error
+    }
+
+    // Delete the draft
+    await this.client
+      .api(`/me/messages/${draftMessageId}`)
+      .delete();
+
+    console.log('✅ AI draft deleted successfully:', draftMessageId);
+  } catch (error) {
+    console.error('❌ Error deleting draft:', error);
+    throw error;
+  }
+}
+
+/**
+ * Check if a message is a draft
+ */
+async isDraftMessage(messageId: string): Promise<boolean> {
+  try {
+    const message = await this.client
+      .api(`/me/messages/${messageId}`)
+      .select('isDraft')
+      .get();
+    
+    return message.isDraft === true;
+  } catch (error) {
+    console.error('Error checking if message is draft:', error);
+    return false;
   }
 }
   /**

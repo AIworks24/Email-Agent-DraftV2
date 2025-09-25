@@ -482,7 +482,7 @@ async function generateAndCreateDraftReplyDelayed(
     const aiProcessor = new AIEmailProcessor(anthropicApiKey);
     const context: EmailContext = {
       subject: emailDetails.subject || '',
-      fromEmail: senderEmail,
+      fromEmail: extractEmailAddress(emailDetails.from),
       body: sanitizeEmailContent(emailDetails.body?.content || ''),
       clientTemplate,
       conversationHistory: '',
@@ -492,17 +492,31 @@ async function generateAndCreateDraftReplyDelayed(
     const aiResponse = await aiProcessor.generateResponse(context);
     
     // Create draft with the FIXED method that preserves unread status
-    await graphService.createDraftReply(
+    const draftResult = await graphService.createDraftReply(
       emailDetails.id,
       aiResponse,
       clientTemplate.signature,
       false
     );
 
-    // Update database
-    await updateEmailLogStatus(emailLogId, 'draft_created', aiResponse);
+    const { error: updateError } = await supabase!
+      .from('email_logs')
+      .update({
+        status: 'draft_created',
+        ai_response: aiResponse,
+        draft_message_id: draftResult.draftId, // NEW: Store draft ID for deletion tracking
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', emailLogId);
+
+    if (updateError) {
+      console.error('❌ Failed to update email log with draft ID:', updateError);
+      // Don't throw - draft was created successfully
+    } else {
+      console.log('✅ Email log updated with draft tracking ID:', draftResult.draftId);
+    }
     
-    console.log('✅ Delayed draft created successfully with notifications preserved');
+    console.log('✅ Delayed draft created successfully with notifications preserved and tracked for auto-deletion');
 
   } catch (error) {
     console.error('❌ Delayed AI processing error:', error);

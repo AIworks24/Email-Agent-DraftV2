@@ -127,22 +127,36 @@ export async function POST(request: NextRequest) {
     const webhookUrl = `${process.env.WEBHOOK_BASE_URL}/api/webhooks/email-received`;
     const clientState = `email-agent-${emailAccount.email_address}-${Date.now()}`;
 
-    console.log('Creating new webhook subscription...');
+    console.log('Creating email creation webhook subscription...');
     const subscription = await graphService.subscribeToEmails(webhookUrl, clientState);
 
-    // Save subscription to database
+    // NEW: Also create deletion webhook subscription
+    console.log('Creating email deletion webhook subscription...');
+    const deleteWebhookUrl = `${process.env.WEBHOOK_BASE_URL}/api/webhooks/email-deleted`;
+    const deleteSubscription = await graphService.subscribeToEmailDeletions(deleteWebhookUrl, clientState);
+
+    // Save both subscriptions to database
     const { data: webhookSub, error: subError } = await supabase
       .from('webhook_subscriptions')
-      .insert({
-        email_account_id: emailAccount.id,
-        subscription_id: subscription.id,
-        webhook_url: webhookUrl,
-        client_state: clientState,
-        expires_at: subscription.expirationDateTime,
-        is_active: true
-      })
-      .select()
-      .single();
+      .insert([
+        {
+          email_account_id: emailAccount.id,
+          subscription_id: subscription.id,
+          webhook_url: webhookUrl,
+          client_state: clientState,
+          expires_at: subscription.expirationDateTime,
+          is_active: true
+        },
+        {
+          email_account_id: emailAccount.id,
+          subscription_id: deleteSubscription.id,
+          webhook_url: deleteWebhookUrl,
+          client_state: `${clientState}-delete`,
+          expires_at: deleteSubscription.expirationDateTime,
+          is_active: true
+        }
+      ])
+      .select();
 
     if (subError) {
       console.error('Failed to save subscription:', subError);
@@ -150,9 +164,15 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Webhook subscription created successfully');
     return NextResponse.json({
-      message: 'Webhook subscription created successfully with automatic renewal',
-      subscription: subscription,
-      webhookUrl: webhookUrl,
+      message: 'Webhook subscriptions created successfully with automatic AI draft cleanup',
+      subscriptions: {
+        create: subscription,
+        delete: deleteSubscription
+      },
+      webhookUrls: {
+        create: webhookUrl,
+        delete: deleteWebhookUrl
+      },
       expiresAt: subscription.expirationDateTime,
       status: 'created'
     });
