@@ -436,7 +436,11 @@ async function generateAndCreateDraftReplyDelayed(
   try {
     console.log('🤖 Generating delayed AI response for:', emailDetails.subject);
 
-    // Get client template settings
+    // Get sender email address
+    const senderEmail = extractEmailAddress(emailDetails.from);
+    console.log('📧 Email from:', senderEmail);
+
+    // Get client template settings INCLUDING email filters
     const { data: template } = await supabase
       .from('email_templates')
       .select('*')
@@ -450,7 +454,8 @@ async function generateAndCreateDraftReplyDelayed(
       signature: template?.signature || `Best regards,\n${emailAccount.clients?.name || ''}`,
       sampleEmails: template?.sample_emails || [],
       autoResponse: template?.auto_response !== false,
-      responseDelay: template?.response_delay || 0
+      responseDelay: template?.response_delay || 0,
+      emailFilters: template?.email_filters || [] // NEW: Get email filters
     };
 
     if (!clientTemplate.autoResponse) {
@@ -458,11 +463,26 @@ async function generateAndCreateDraftReplyDelayed(
       return;
     }
 
-    // Generate AI response
+    // NEW: Check if sender email is in the filter list
+    const normalizedSender = senderEmail.toLowerCase().trim();
+    const isFiltered = clientTemplate.emailFilters.some((filterEmail: string) => {
+      const normalizedFilter = filterEmail.toLowerCase().trim();
+      return normalizedSender === normalizedFilter;
+    });
+
+    if (isFiltered) {
+      console.log('🚫 Email filtered - sender in filter list:', senderEmail);
+      await updateEmailLogStatus(emailLogId, 'filtered', `Email filtered - sender ${senderEmail} is in the client's filter list`);
+      return;
+    }
+
+    console.log('✅ Email passed filter check - proceeding with AI processing');
+
+    // Continue with existing AI processing logic...
     const aiProcessor = new AIEmailProcessor(anthropicApiKey);
     const context: EmailContext = {
       subject: emailDetails.subject || '',
-      fromEmail: extractEmailAddress(emailDetails.from),
+      fromEmail: senderEmail,
       body: sanitizeEmailContent(emailDetails.body?.content || ''),
       clientTemplate,
       conversationHistory: '',
@@ -471,7 +491,7 @@ async function generateAndCreateDraftReplyDelayed(
 
     const aiResponse = await aiProcessor.generateResponse(context);
     
-    // 🚀 Create draft with the FIXED method that preserves unread status
+    // Create draft with the FIXED method that preserves unread status
     await graphService.createDraftReply(
       emailDetails.id,
       aiResponse,

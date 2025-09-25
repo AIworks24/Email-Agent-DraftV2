@@ -21,7 +21,7 @@ export async function PUT(
 
     // ADD SAFE VALIDATION (doesn't break on failure)
     const validation = safeValidate(settingsSchema, rawSettings);
-    let settings: any; // Fix: Declare settings in proper scope
+    let settings: any;
     
     if (!validation.success) {
       console.warn('Settings validation failed:', validation.errors);
@@ -30,6 +30,11 @@ export async function PUT(
     } else {
       settings = validation.data;
     }
+
+    // Clean up email filters - remove empty entries and normalize
+    const emailFilters = (settings.emailFilters || [])
+      .map((email: string) => email.trim().toLowerCase())
+      .filter((email: string) => email.length > 0 && email.includes('@'));
 
     // Check if template exists for this client
     const { data: existing } = await supabase
@@ -49,6 +54,7 @@ export async function PUT(
           tone: settings.tone,
           signature: settings.signature || '',
           sample_emails: settings.sampleEmails || [],
+          email_filters: emailFilters, // NEW: Save email filters
           auto_response: settings.autoResponse,
           response_delay: settings.responseDelay || 0,
           updated_at: new Date().toISOString()
@@ -57,7 +63,7 @@ export async function PUT(
         .select()
         .single();
     } else {
-      // Insert new template - match your exact table structure
+      // Insert new template
       result = await supabase
         .from('email_templates')
         .insert({
@@ -67,6 +73,7 @@ export async function PUT(
           tone: settings.tone,
           signature: settings.signature || '',
           sample_emails: settings.sampleEmails || [],
+          email_filters: emailFilters, // NEW: Save email filters
           is_active: true,
           auto_response: settings.autoResponse,
           response_delay: settings.responseDelay || 0,
@@ -119,7 +126,8 @@ export async function GET(
       signature: template?.signature || '',
       sampleEmails: template?.sample_emails || [''],
       autoResponse: template?.auto_response !== false,
-      responseDelay: template?.response_delay || 0
+      responseDelay: template?.response_delay || 0,
+      emailFilters: template?.email_filters || [] // NEW: Include email filters
     };
 
     return NextResponse.json({ settings });

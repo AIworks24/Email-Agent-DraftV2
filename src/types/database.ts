@@ -6,6 +6,7 @@ export interface Database {
           id: string;
           name: string;
           email: string;
+          email_filters: string[] | null;
           company: string;
           is_active: boolean;
           created_at: string;
@@ -121,6 +122,7 @@ export interface Database {
           client_id: string;
           name: string;
           writing_style: string;
+          email_filters?: string[];
           tone: string;
           signature: string;
           sample_emails?: string[];
@@ -133,6 +135,7 @@ export interface Database {
           client_id?: string;
           name?: string;
           writing_style?: string;
+          email_filters?: string[];
           tone?: string;
           signature?: string;
           sample_emails?: string[];

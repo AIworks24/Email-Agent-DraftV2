@@ -10,6 +10,7 @@ interface ClientSettings {
   sampleEmails: string[];
   autoResponse: boolean;
   responseDelay: number;
+  emailFilters: string[];
 }
 
 interface Client {
@@ -80,7 +81,8 @@ export default function ClientDashboard() {
     signature: '',
     sampleEmails: [''],
     autoResponse: true,
-    responseDelay: 0
+    responseDelay: 0,
+    emailFilters: ['']
   });
 
   useEffect(() => {
@@ -294,7 +296,17 @@ export default function ClientDashboard() {
       const response = await fetch(`/api/clients/${client.id}/settings`);
       if (response.ok) {
         const data = await response.json();
-        setClientSettings(data.settings);
+        setClientSettings({
+          writingStyle: data.settings.writingStyle || 'professional',
+          tone: data.settings.tone || 'friendly',
+          signature: data.settings.signature || `Best regards,\n${client.name}`,
+          sampleEmails: data.settings.sampleEmails || [''],
+          autoResponse: data.settings.autoResponse !== false,
+          responseDelay: data.settings.responseDelay || 0,
+          emailFilters: data.settings.emailFilters && data.settings.emailFilters.length > 0 
+            ? data.settings.emailFilters 
+            : ['']
+        });
       } else {
         // Use defaults if no settings found
         setClientSettings({
@@ -303,7 +315,8 @@ export default function ClientDashboard() {
           signature: `Best regards,\n${client.name}`,
           sampleEmails: [''],
           autoResponse: true,
-          responseDelay: 0
+          responseDelay: 0,
+          emailFilters: ['']
         });
       }
     } catch (error) {
@@ -361,6 +374,26 @@ export default function ClientDashboard() {
     if (clientSettings.sampleEmails.length > 1) {
       const newSampleEmails = clientSettings.sampleEmails.filter((_, i) => i !== index);
       setClientSettings({ ...clientSettings, sampleEmails: newSampleEmails });
+    }
+  };
+  
+  const updateEmailFilter = (index: number, value: string) => {
+    const newEmailFilters = [...clientSettings.emailFilters];
+    newEmailFilters[index] = value;
+    setClientSettings({ ...clientSettings, emailFilters: newEmailFilters });
+  };
+
+  const addEmailFilter = () => {
+    setClientSettings({ 
+      ...clientSettings, 
+      emailFilters: [...clientSettings.emailFilters, ''] 
+    });
+  };
+
+  const removeEmailFilter = (index: number) => {
+    if (clientSettings.emailFilters.length > 1) {
+      const newEmailFilters = clientSettings.emailFilters.filter((_, i) => i !== index);
+      setClientSettings({ ...clientSettings, emailFilters: newEmailFilters });
     }
   };
 
@@ -1409,6 +1442,108 @@ ${envStatus?.WEBHOOK_BASE_URL ? '✓' : '❌'} WEBHOOK_BASE_URL: ${envStatus?.WE
                   placeholder="Best regards,&#10;John Doe&#10;CEO, Company Name&#10;phone@email.com"
                 />
               </div>
+
+              {/* Email Address Filters */}
+              <div style={{
+                backgroundColor: 'white',
+                border: '1px solid #e5e7eb',
+                borderRadius: '12px',
+                padding: '20px',
+                marginBottom: '20px'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '16px'
+                }}>
+                  <h3 style={{
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#111827',
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}>
+                    🚫 Email Address Filters
+                  </h3>
+                  <button
+                    onClick={addEmailFilter}
+                    type="button"
+                    style={{
+                      padding: '8px 16px',
+                      backgroundColor: '#f59e0b',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '500'
+                    }}
+                  >
+                    + Add Filter
+                  </button>
+                </div>
+                
+                <div style={{ marginBottom: '16px' }}>
+                  {clientSettings.emailFilters.map((filter, index) => (
+                    <div key={index} style={{
+                      position: 'relative',
+                      marginBottom: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}>
+                      <input
+                        type="email"
+                        value={filter}
+                        onChange={(e) => updateEmailFilter(index, e.target.value)}
+                        style={{
+                          ...inputStyle,
+                          flex: 1
+                        }}
+                        placeholder="email@example.com"
+                      />
+                      {clientSettings.emailFilters.length > 1 && (
+                        <button
+                          onClick={() => removeEmailFilter(index)}
+                          type="button"
+                          style={{
+                            color: '#ef4444',
+                            background: 'white',
+                            border: '2px solid #ef4444',
+                            borderRadius: '6px',
+                            width: '36px',
+                            height: '36px',
+                            cursor: 'pointer',
+                            fontSize: '16px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                          title="Remove this email filter"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                
+                <div style={{
+                  fontSize: '14px',
+                  color: '#6b7280',
+                  backgroundColor: '#fef3c7',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: '1px solid #f59e0b'
+                }}>
+                  <strong>Email Filters:</strong> Add email addresses that should NOT receive AI responses. 
+                  Perfect for filtering out marketing emails, bank notifications, authentication codes, 
+                  and internal company emails. Supports exact email matches only.
+                </div>
+              </div>
+
 
               {/* Sample Emails */}
               <div style={{
