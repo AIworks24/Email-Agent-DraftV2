@@ -351,17 +351,11 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
   }
 
   try {
-    console.log('🤖 Starting AI processing for delayed email:', messageId);
-    console.log('📧 Email account info:', {
-      id: emailAccount.id,
-      email: emailAccount.email_address,
-      client_id: emailAccount.client_id,
-      is_active: emailAccount.is_active
-    });
+    console.log('🤖 Starting AI processing for email:', messageId);
 
     // Validate email account
     if (!emailAccount || !emailAccount.id || !emailAccount.is_active) {
-      throw new Error(`Email account validation failed: ${JSON.stringify(emailAccount)}`);
+      throw new Error(`Invalid email account: ${JSON.stringify(emailAccount)}`);
     }
 
     // Initialize Graph service
@@ -369,42 +363,147 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
     const validToken = await getValidAccessToken(emailAccount.id);
     const graphService = new GraphService(validToken);
 
-    // Fetch email details (read-only operation)
+    // STEP 1: Fetch email details
+    console.log('📥 Fetching email details...');
     const emailDetails = await graphService.getEmailDetailsPreservingNotifications(messageId);
     
     if (!emailDetails) {
-      await updateEmailLogStatus(emailLogId, 'error', 'Email not found during delayed processing');
+      console.error('❌ Email not found:', messageId);
+      await updateEmailLogStatus(emailLogId, 'error', 'Email not found');
       return;
     }
 
-    console.log('📧 Email details retrieved for delayed processing:', emailDetails.subject);
+    console.log('✅ Email details retrieved:', {
+      subject: emailDetails.subject,
+      from: emailDetails.from?.emailAddress?.address
+    });
 
-    // Update log with actual email details
-    await supabase!
+    // STEP 2: Extract email data
+    const senderEmail = extractEmailAddress(emailDetails.from);
+    const emailSubject = emailDetails.subject || 'No subject';
+    const emailBody = sanitizeEmailContent(emailDetails.body?.content || '');
+
+    console.log('📧 Extracted data:', {
+      sender: senderEmail,
+      subject: emailSubject,
+      bodyLength: emailBody.length
+    });
+
+    // CRITICAL FIX: Update email log with actual details IMMEDIATELY
+    console.log('💾 Updating email log with actual details...');
+    const { error: updateError } = await supabase!
       .from('email_logs')
       .update({
-        subject: emailDetails.subject || 'No subject',
-        sender_email: extractEmailAddress(emailDetails.from),
-        from_email: extractEmailAddress(emailDetails.from),
-        original_body: sanitizeEmailContent(emailDetails.body?.content || ''),
+        subject: emailSubject,
+        sender_email: senderEmail,
+        from_email: senderEmail, // Update BOTH fields
+        original_body: emailBody,
         status: 'processing',
         updated_at: new Date().toISOString()
       })
       .eq('id', emailLogId);
 
-    // Generate AI response and create draft using the ORIGINAL working function
-    const aiResult = await generateAndCreateDraftReplyDelayed(
-      emailDetails,
-      emailAccount,
-      emailLogId,
-      graphService
+    if (updateError) {
+      console.error('❌ Failed to update email log:', updateError);
+      throw new Error(`Database update failed: ${updateError.message}`);
+    }
+
+    console.log('✅ Email log updated successfully');
+
+    // STEP 3: Get client template settings
+    const { data: template } = await supabase
+      .from('email_templates')
+      .select('*')
+      .eq('client_id', emailAccount.client_id)
+      .eq('name', 'Default Template')
+      .single();
+
+    const clientTemplate = {
+      writingStyle: template?.writing_style || 'professional',
+      tone: template?.tone || 'friendly',
+      signature: template?.signature || `Best regards,\n${emailAccount.clients?.name || ''}`,
+      sampleEmails: template?.sample_emails || [],
+      autoResponse: template?.auto_response !== false,
+      responseDelay: template?.response_delay || 0,
+      emailFilters: template?.email_filters || []
+    };
+
+    // STEP 4: Check auto-response setting
+    if (!clientTemplate.autoResponse) {
+      console.log('⏭️ Auto-response disabled for client');
+      await updateEmailLogStatus(emailLogId, 'skipped', 'Auto-response disabled');
+      return;
+    }
+
+    // STEP 5: Check email filters
+    const normalizedSender = senderEmail.toLowerCase().trim();
+    const isFiltered = clientTemplate.emailFilters.some((filterEmail: string) => {
+      return filterEmail.toLowerCase().trim() === normalizedSender;
+    });
+
+    if (isFiltered) {
+      console.log('🚫 Email filtered - sender in filter list:', senderEmail);
+      await updateEmailLogStatus(
+        emailLogId, 
+        'filtered', 
+        `Sender ${senderEmail} is in the client's filter list`
+      );
+      return;
+    }
+
+    console.log('✅ Email passed all checks, generating AI response...');
+
+    // STEP 6: Generate AI response
+    const aiProcessor = new AIEmailProcessor(anthropicApiKey);
+    const context: EmailContext = {
+      subject: emailSubject,
+      fromEmail: senderEmail,
+      body: emailBody,
+      clientTemplate,
+      conversationHistory: '',
+      calendarAvailability: null
+    };
+
+    const aiResponse = await aiProcessor.generateResponse(context);
+    console.log('✅ AI response generated');
+
+    // STEP 7: Create draft reply
+    const draftResult = await graphService.createDraftReply(
+      emailDetails.id,
+      aiResponse,
+      clientTemplate.signature,
+      false
     );
 
-    console.log('🎉 Delayed AI processing completed successfully with result:', aiResult);
-    
+    console.log('✅ Draft created:', draftResult.draftId);
+
+    // STEP 8: Update email log with final status
+    const { error: finalUpdateError } = await supabase!
+      .from('email_logs')
+      .update({
+        status: 'draft_created',
+        ai_response: aiResponse,
+        draft_message_id: draftResult.draftId,
+        tokens_used: estimateTokens(aiResponse),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', emailLogId);
+
+    if (finalUpdateError) {
+      console.error('❌ Failed to update final status:', finalUpdateError);
+    } else {
+      console.log('✅ Email log updated with draft ID');
+    }
+
+    console.log('🎉 AI processing completed successfully');
+
   } catch (error) {
-    console.error('❌ Delayed AI processing error:', error);
-    await updateEmailLogStatus(emailLogId, 'error', `Delayed processing error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    console.error('❌ AI processing error:', error);
+    await updateEmailLogStatus(
+      emailLogId, 
+      'error', 
+      `Processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
   }
 }
 

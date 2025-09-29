@@ -288,27 +288,40 @@ export default function ClientDashboard() {
   };
 
   const handleManageClient = async (client: Client) => {
-    console.log('Managing client:', client);
+    console.log('📋 Managing client:', client.name);
     setSelectedClient(client);
     
-    // Load current settings
+    // Load current settings from database
     try {
+      console.log('📥 Fetching settings from API...');
       const response = await fetch(`/api/clients/${client.id}/settings`);
+      
       if (response.ok) {
         const data = await response.json();
-        setClientSettings({
+        console.log('✅ Settings loaded:', data.settings);
+        
+        // CRITICAL FIX: Properly map settings with fallbacks
+        const loadedSettings = {
           writingStyle: data.settings.writingStyle || 'professional',
           tone: data.settings.tone || 'friendly',
           signature: data.settings.signature || `Best regards,\n${client.name}`,
-          sampleEmails: data.settings.sampleEmails || [''],
+          sampleEmails: (data.settings.sampleEmails && data.settings.sampleEmails.length > 0)
+            ? data.settings.sampleEmails
+            : [''],
           autoResponse: data.settings.autoResponse !== false,
           responseDelay: data.settings.responseDelay || 0,
-          emailFilters: data.settings.emailFilters && data.settings.emailFilters.length > 0 
-            ? data.settings.emailFilters 
+          // CRITICAL: Properly load email filters
+          emailFilters: (data.settings.emailFilters && data.settings.emailFilters.length > 0)
+            ? data.settings.emailFilters
             : ['']
-        });
+        };
+        
+        console.log('✅ Mapped settings:', loadedSettings);
+        setClientSettings(loadedSettings);
       } else {
-        // Use defaults if no settings found
+        console.error('❌ Failed to load settings:', response.status);
+        
+        // Use defaults if load fails
         setClientSettings({
           writingStyle: 'professional',
           tone: 'friendly',
@@ -320,7 +333,18 @@ export default function ClientDashboard() {
         });
       }
     } catch (error) {
-      console.error('Error loading client settings:', error);
+      console.error('❌ Error loading client settings:', error);
+      
+      // Use defaults on error
+      setClientSettings({
+        writingStyle: 'professional',
+        tone: 'friendly',
+        signature: `Best regards,\n${client.name}`,
+        sampleEmails: [''],
+        autoResponse: true,
+        responseDelay: 0,
+        emailFilters: ['']
+      });
     }
     
     setShowManageModal(true);
