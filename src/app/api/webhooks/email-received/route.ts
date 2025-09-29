@@ -440,6 +440,19 @@ async function generateAndCreateDraftReplyDelayed(
     const senderEmail = extractEmailAddress(emailDetails.from);
     console.log('📧 Email from:', senderEmail);
 
+    // CRITICAL FIX: Update database with real email details immediately
+    await supabase!
+      .from('email_logs')
+      .update({
+        subject: emailDetails.subject || 'No subject',
+        sender_email: senderEmail,
+        from_email: senderEmail,
+        body: sanitizeEmailContent(emailDetails.body?.content || ''),
+        status: 'processing',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', emailLogId);
+
     // Get client template settings INCLUDING email filters
     const { data: template } = await supabase
       .from('email_templates')
@@ -455,7 +468,7 @@ async function generateAndCreateDraftReplyDelayed(
       sampleEmails: template?.sample_emails || [],
       autoResponse: template?.auto_response !== false,
       responseDelay: template?.response_delay || 0,
-      emailFilters: template?.email_filters || [] // NEW: Get email filters
+      emailFilters: template?.email_filters || []
     };
 
     if (!clientTemplate.autoResponse) {
@@ -463,7 +476,7 @@ async function generateAndCreateDraftReplyDelayed(
       return;
     }
 
-    // NEW: Check if sender email is in the filter list
+    // Check if sender email is in the filter list
     const normalizedSender = senderEmail.toLowerCase().trim();
     const isFiltered = clientTemplate.emailFilters.some((filterEmail: string) => {
       const normalizedFilter = filterEmail.toLowerCase().trim();
@@ -478,11 +491,11 @@ async function generateAndCreateDraftReplyDelayed(
 
     console.log('✅ Email passed filter check - proceeding with AI processing');
 
-    // Continue with existing AI processing logic...
+    // Generate AI response
     const aiProcessor = new AIEmailProcessor(anthropicApiKey);
     const context: EmailContext = {
       subject: emailDetails.subject || '',
-      fromEmail: extractEmailAddress(emailDetails.from),
+      fromEmail: senderEmail,
       body: sanitizeEmailContent(emailDetails.body?.content || ''),
       clientTemplate,
       conversationHistory: '',
@@ -491,7 +504,7 @@ async function generateAndCreateDraftReplyDelayed(
 
     const aiResponse = await aiProcessor.generateResponse(context);
     
-    // Create draft with the FIXED method that preserves unread status
+    // Create draft with notification preservation
     const draftResult = await graphService.createDraftReply(
       emailDetails.id,
       aiResponse,
@@ -499,24 +512,24 @@ async function generateAndCreateDraftReplyDelayed(
       false
     );
 
+    // Update with draft creation status and draft ID
     const { error: updateError } = await supabase!
       .from('email_logs')
       .update({
         status: 'draft_created',
         ai_response: aiResponse,
-        draft_message_id: draftResult.draftId, // NEW: Store draft ID for deletion tracking
+        draft_message_id: draftResult.draftId,
         updated_at: new Date().toISOString()
       })
       .eq('id', emailLogId);
 
     if (updateError) {
       console.error('❌ Failed to update email log with draft ID:', updateError);
-      // Don't throw - draft was created successfully
     } else {
       console.log('✅ Email log updated with draft tracking ID:', draftResult.draftId);
     }
     
-    console.log('✅ Delayed draft created successfully with notifications preserved and tracked for auto-deletion');
+    console.log('✅ Draft created successfully with notifications preserved and tracked for auto-deletion');
 
   } catch (error) {
     console.error('❌ Delayed AI processing error:', error);
