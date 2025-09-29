@@ -11,7 +11,7 @@ interface ClientSettings {
   autoResponse: boolean;
   responseDelay: number;
   emailFilters: string[];
-  customInstructions: string; // ✅ NEW FIELD
+  customInstructions: string;
 }
 
 interface Client {
@@ -35,7 +35,7 @@ interface Client {
     sampleEmails?: string[];
     autoResponse?: boolean;
     responseDelay?: number;
-    customInstructions?: string; // ✅ NEW FIELD
+    customInstructions?: string;
   };
 }
 
@@ -81,7 +81,7 @@ export default function ClientDashboard() {
     autoResponse: true,
     responseDelay: 0,
     emailFilters: [''],
-    customInstructions: '' // ✅ NEW FIELD
+    customInstructions: ''
   });
 
   useEffect(() => {
@@ -134,8 +134,6 @@ export default function ClientDashboard() {
           log.subject !== 'Loading...'
         ) || [];
         setEmailLogs(validLogs);
-      } else {
-        console.error('Failed to fetch email logs:', response.status);
       }
     } catch (error) {
       console.error('Error fetching email logs:', error);
@@ -175,19 +173,13 @@ export default function ClientDashboard() {
 
   const initiateClientRegistration = async () => {
     try {
-      console.log('Starting Microsoft Graph OAuth flow...');
-      
       const tempClientId = `temp-${Date.now()}`;
       const returnUrl = encodeURIComponent(window.location.pathname);
-      
       const authUrl = `/api/auth/signin?clientId=${tempClientId}&returnUrl=${returnUrl}`;
-      console.log('Redirecting to:', authUrl);
-      
       window.location.href = authUrl;
-      
     } catch (error) {
       console.error('Registration error:', error);
-      alert('Failed to start client registration. Please check the console for details.');
+      alert('Failed to start client registration.');
     }
   };
 
@@ -202,33 +194,14 @@ export default function ClientDashboard() {
       const result = await response.json();
       
       if (response.ok) {
-        alert(`✅ Webhook setup successful for ${client.name}!\n\nSubscription ID: ${result.subscription?.id}\nExpires: ${new Date(result.expiresAt).toLocaleString()}`);
+        alert(`✅ Webhook setup successful for ${client.name}!`);
         loadDashboardData();
       } else {
-        if (result.canContinue) {
-          const shouldContinue = confirm(`⚠️ Warning for ${client.name}:\n\n${result.message}\n\nThe webhook will work until the current token expires (~1 hour).\n\nClick OK to proceed anyway, or Cancel to re-authenticate this client first.`);
-          
-          if (shouldContinue) {
-            const forceResponse = await fetch('/api/setup-webhook', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ clientId: client.id, force: true })
-            });
-            
-            const forceResult = await forceResponse.json();
-            if (forceResponse.ok) {
-              alert(`✅ Webhook created (limited duration) for ${client.name}!\n\nNote: Will need re-authentication when token expires.`);
-            } else {
-              alert(`❌ Failed: ${forceResult.error}`);
-            }
-          }
-        } else {
-          alert(`❌ Webhook setup failed for ${client.name}:\n\n${result.message}\n\n${result.recommendation || 'Please try again or contact support.'}`);
-        }
+        alert(`❌ Webhook setup failed: ${result.message}`);
       }
     } catch (error) {
       console.error('Webhook setup error:', error);
-      alert(`❌ Failed to setup webhook: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`❌ Failed to setup webhook`);
     }
   };
 
@@ -246,13 +219,10 @@ export default function ClientDashboard() {
           c.id === client.id ? { ...c, is_active: newStatus } : c
         ));
         alert(`✅ Client ${newStatus ? 'activated' : 'deactivated'} successfully!`);
-      } else {
-        const error = await response.json();
-        alert(`❌ Failed to update client status: ${error.message}`);
       }
     } catch (error) {
       console.error('Toggle client error:', error);
-      alert(`❌ Failed to update status: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`❌ Failed to update status`);
     }
   };
 
@@ -267,27 +237,21 @@ export default function ClientDashboard() {
         setShowDeleteConfirm(null);
         alert('✅ Client deleted successfully!');
         loadDashboardData();
-      } else {
-        const error = await response.json();
-        alert(`❌ Failed to delete client: ${error.message}`);
       }
     } catch (error) {
       console.error('Delete client error:', error);
-      alert(`❌ Failed to delete client: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`❌ Failed to delete client`);
     }
   };
 
   const handleManageClient = async (client: Client) => {
-    console.log('📋 Managing client:', client.name);
     setSelectedClient(client);
     
     try {
-      console.log('📥 Fetching settings from API...');
       const response = await fetch(`/api/clients/${client.id}/settings`);
       
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Settings loaded:', data.settings);
         
         const loadedSettings = {
           writingStyle: data.settings.writingStyle || 'professional',
@@ -301,14 +265,11 @@ export default function ClientDashboard() {
           emailFilters: (data.settings.emailFilters && data.settings.emailFilters.length > 0)
             ? data.settings.emailFilters
             : [''],
-          customInstructions: data.settings.customInstructions || '' // ✅ NEW FIELD
+          customInstructions: data.settings.customInstructions || ''
         };
         
-        console.log('✅ Mapped settings:', loadedSettings);
         setClientSettings(loadedSettings);
       } else {
-        console.error('❌ Failed to load settings:', response.status);
-        
         setClientSettings({
           writingStyle: 'professional',
           tone: 'friendly',
@@ -317,12 +278,11 @@ export default function ClientDashboard() {
           autoResponse: true,
           responseDelay: 0,
           emailFilters: [''],
-          customInstructions: '' // ✅ NEW FIELD
+          customInstructions: ''
         });
       }
     } catch (error) {
-      console.error('❌ Error loading client settings:', error);
-      
+      console.error('Error loading client settings:', error);
       setClientSettings({
         writingStyle: 'professional',
         tone: 'friendly',
@@ -331,7 +291,7 @@ export default function ClientDashboard() {
         autoResponse: true,
         responseDelay: 0,
         emailFilters: [''],
-        customInstructions: '' // ✅ NEW FIELD
+        customInstructions: ''
       });
     }
     
@@ -446,18 +406,643 @@ export default function ClientDashboard() {
     cursor: 'pointer'
   };
 
-  // Dashboard, Clients, and Settings tabs remain the same...
-  // (Keep all the existing JSX for dashboard, clients, settings tabs - not repeating here to save space)
-
   return (
     <div style={{
       minHeight: '100vh',
       backgroundColor: '#f9fafb',
       fontFamily: 'system-ui, -apple-system, sans-serif'
     }}>
-      {/* ... existing dashboard content ... */}
+      <div style={{
+        maxWidth: '1200px',
+        margin: '0 auto',
+        padding: '24px'
+      }}>
+        {/* Header */}
+        <div style={cardStyle}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '24px'
+          }}>
+            <div>
+              <h1 style={{
+                fontSize: '28px',
+                fontWeight: 'bold',
+                margin: '0 0 8px 0',
+                color: '#111827'
+              }}>
+                AI Email Agent Dashboard
+              </h1>
+              <p style={{
+                color: '#6b7280',
+                margin: 0,
+                fontSize: '16px'
+              }}>
+                Manage client email automation and AI responses
+              </p>
+            </div>
+            <div style={{
+              display: 'flex',
+              gap: '12px'
+            }}>
+              <div style={{
+                padding: '8px 16px',
+                backgroundColor: '#10b981',
+                color: 'white',
+                borderRadius: '6px',
+                fontSize: '14px',
+                fontWeight: '500'
+              }}>
+                ✓ System Online
+              </div>
+              <button 
+                onClick={initiateClientRegistration}
+                style={{
+                  ...buttonStyle,
+                  backgroundColor: '#3b82f6',
+                  color: 'white'
+                }}>
+                + Add Client
+              </button>
+            </div>
+          </div>
 
-      {/* UPDATED Manage Client Modal with Custom Instructions */}
+          {/* Navigation */}
+          <div>
+            {['dashboard', 'clients', 'settings'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                style={{
+                  ...buttonStyle,
+                  backgroundColor: activeTab === tab ? '#3b82f6' : '#f3f4f6',
+                  color: activeTab === tab ? 'white' : '#374151'
+                }}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Dashboard Content */}
+        {activeTab === 'dashboard' && (
+          <div>
+            {/* Stats Overview */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+              gap: '24px',
+              marginBottom: '24px'
+            }}>
+              <div style={{
+                ...cardStyle,
+                textAlign: 'center' as const,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white'
+              }}>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '8px' }}>
+                  {loading ? '...' : emailStats.totalEmails}
+                </div>
+                <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                  Total Emails Processed
+                </div>
+              </div>
+              
+              <div style={{
+                ...cardStyle,
+                textAlign: 'center' as const,
+                background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                color: 'white'
+              }}>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '8px' }}>
+                  {loading ? '...' : emailStats.draftsCreated}
+                </div>
+                <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                  AI Drafts Created
+                </div>
+              </div>
+
+              <div style={{
+                ...cardStyle,
+                textAlign: 'center' as const,
+                background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                color: 'white'
+              }}>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '8px' }}>
+                  {loading ? '...' : emailStats.emailsSent}
+                </div>
+                <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                  Emails Sent
+                </div>
+              </div>
+
+              <div style={{
+                ...cardStyle,
+                textAlign: 'center' as const,
+                background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+                color: 'white'
+              }}>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '8px' }}>
+                  {loading ? '...' : emailStats.activeClients}
+                </div>
+                <div style={{ fontSize: '14px', opacity: 0.9 }}>
+                  Active Clients
+                </div>
+              </div>
+            </div>
+
+            {/* Live Email Processing */}
+            <div style={cardStyle}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px',
+                paddingBottom: '16px',
+                borderBottom: '1px solid #e5e7eb'
+              }}>
+                <h2 style={{
+                  fontSize: '18px',
+                  fontWeight: '600',
+                  margin: 0,
+                  color: '#111827'
+                }}>
+                  Live Email Processing
+                </h2>
+                <div>
+                  <button
+                    onClick={fetchEmailLogs}
+                    disabled={refreshing}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      cursor: refreshing ? 'not-allowed' : 'pointer',
+                      backgroundColor: refreshing ? '#f3f4f6' : '#dbeafe',
+                      color: refreshing ? '#9ca3af' : '#1d4ed8',
+                      marginRight: '8px'
+                    }}
+                  >
+                    {refreshing ? 'Refreshing...' : 'Refresh'}
+                  </button>
+                  <button
+                    onClick={cleanupTestData}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      backgroundColor: '#f59e0b',
+                      color: 'white'
+                    }}
+                  >
+                    🧹 Cleanup
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                {emailLogs.length === 0 ? (
+                  <div style={{
+                    textAlign: 'center',
+                    padding: '48px 24px',
+                    color: '#6b7280'
+                  }}>
+                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>📧</div>
+                    <p style={{ fontSize: '18px', margin: '0 0 8px 0' }}>No email activity yet</p>
+                    <p style={{ fontSize: '14px', margin: 0 }}>
+                      Email processing logs will appear here
+                    </p>
+                  </div>
+                ) : (
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse' as const
+                  }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f9fafb' }}>
+                        <th style={{
+                          padding: '12px',
+                          textAlign: 'left' as const,
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          color: '#6b7280',
+                          textTransform: 'uppercase' as const
+                        }}>Time</th>
+                        <th style={{
+                          padding: '12px',
+                          textAlign: 'left' as const,
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          color: '#6b7280',
+                          textTransform: 'uppercase' as const
+                        }}>Client</th>
+                        <th style={{
+                          padding: '12px',
+                          textAlign: 'left' as const,
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          color: '#6b7280',
+                          textTransform: 'uppercase' as const
+                        }}>Subject</th>
+                        <th style={{
+                          padding: '12px',
+                          textAlign: 'left' as const,
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          color: '#6b7280',
+                          textTransform: 'uppercase' as const
+                        }}>From</th>
+                        <th style={{
+                          padding: '12px',
+                          textAlign: 'left' as const,
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          color: '#6b7280',
+                          textTransform: 'uppercase' as const
+                        }}>Status</th>
+                        <th style={{
+                          padding: '12px',
+                          textAlign: 'left' as const,
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          color: '#6b7280',
+                          textTransform: 'uppercase' as const
+                        }}>AI Response</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {emailLogs.map((log) => (
+                        <tr key={log.id} style={{
+                          backgroundColor: 'white',
+                          borderBottom: '1px solid #e5e7eb'
+                        }}>
+                          <td style={{
+                            padding: '12px',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            {new Date(log.created_at).toLocaleString()}
+                          </td>
+                          <td style={{
+                            padding: '12px',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            color: '#111827'
+                          }}>
+                            {log.client?.name || 'Unknown'}
+                          </td>
+                          <td style={{
+                            padding: '12px',
+                            fontSize: '14px',
+                            color: '#374151',
+                            maxWidth: '200px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap' as const
+                          }}>
+                            {log.subject || 'No subject'}
+                          </td>
+                          <td style={{
+                            padding: '12px',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            {log.sender_email || log.from_email || ''}
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <span style={{
+                              padding: '4px 8px',
+                              fontSize: '12px',
+                              fontWeight: '500',
+                              borderRadius: '16px',
+                              backgroundColor: 
+                                log.status === 'draft_created' ? '#dcfce7' :
+                                log.status === 'error' ? '#fee2e2' :
+                                '#f3f4f6',
+                              color:
+                                log.status === 'draft_created' ? '#166534' :
+                                log.status === 'error' ? '#991b1b' :
+                                '#374151'
+                            }}>
+                              {log.status.replace(/_/g, ' ')}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            {log.ai_response ? (
+                              <button
+                                onClick={() => alert(log.ai_response)}
+                                style={{
+                                  color: '#2563eb',
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  textDecoration: 'underline'
+                                }}
+                              >
+                                View Response
+                              </button>
+                            ) : (
+                              <span style={{ color: '#9ca3af', fontSize: '14px' }}>No response</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Clients Tab */}
+        {activeTab === 'clients' && (
+          <div style={cardStyle}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '24px'
+            }}>
+              <h2 style={{ 
+                margin: 0, 
+                fontSize: '20px', 
+                fontWeight: '600',
+                color: '#111827'
+              }}>
+                Client Management
+              </h2>
+              <button 
+                onClick={initiateClientRegistration}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: 'pointer'
+                }}>
+                + Add New Client
+              </button>
+            </div>
+
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#6b7280' }}>
+                Loading clients...
+              </div>
+            ) : clients.length === 0 ? (
+              <div style={{
+                textAlign: 'center',
+                padding: '40px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb'
+              }}>
+                <p style={{ color: '#6b7280', margin: 0 }}>No clients added yet</p>
+              </div>
+            ) : (
+              <div>
+                {clients.map((client) => (
+                  <div key={client.id} style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '16px',
+                    marginBottom: '12px',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    backgroundColor: 'white'
+                  }}>
+                    <div>
+                      <div style={{ 
+                        fontWeight: '600', 
+                        fontSize: '16px',
+                        color: '#111827',
+                        marginBottom: '4px'
+                      }}>
+                        {client.name}
+                      </div>
+                      <div style={{ 
+                        fontSize: '14px', 
+                        color: '#6b7280',
+                        marginBottom: '2px'
+                      }}>
+                        {client.email}
+                      </div>
+                      <div style={{ 
+                        fontSize: '12px', 
+                        color: '#9ca3af' 
+                      }}>
+                        {client.emails_processed || 0} emails processed
+                      </div>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        onClick={() => toggleClientStatus(client)}
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: '12px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          border: 'none',
+                          cursor: 'pointer',
+                          backgroundColor: client.is_active !== false ? '#dcfce7' : '#fef2f2',
+                          color: client.is_active !== false ? '#16a34a' : '#dc2626'
+                        }}
+                      >
+                        {client.is_active !== false ? '🟢 Active' : '🔴 Inactive'}
+                      </button>
+
+                      <button
+                        onClick={() => setupWebhookForClient(client)}
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: '#059669',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          fontWeight: '500'
+                        }}
+                      >
+                        Setup Webhook
+                      </button>
+
+                      <button
+                        onClick={() => handleManageClient(client)}
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: 'transparent',
+                          color: '#3b82f6',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '4px',
+                          fontSize: '14px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Manage
+                      </button>
+
+                      <button
+                        onClick={() => setShowDeleteConfirm(client.id)}
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: '#dc2626',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          fontWeight: '500'
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Settings Tab */}
+        {activeTab === 'settings' && (
+          <div style={cardStyle}>
+            <h2 style={{ margin: '0 0 16px 0' }}>System Configuration</h2>
+            <p style={{ margin: '0 0 24px 0', color: '#6b7280' }}>
+              Environment variables status:
+            </p>
+            
+            <div style={{
+              backgroundColor: '#f3f4f6',
+              padding: '16px',
+              borderRadius: '4px',
+              fontFamily: 'monospace',
+              fontSize: '12px',
+              marginBottom: '24px'
+            }}>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+{`# Environment Status
+${envStatus?.NEXT_PUBLIC_SUPABASE_URL ? '✓' : '❌'} NEXT_PUBLIC_SUPABASE_URL: ${envStatus?.NEXT_PUBLIC_SUPABASE_URL ? 'Configured' : 'Not Set'}
+${envStatus?.SUPABASE_SERVICE_ROLE_KEY ? '✓' : '❌'} SUPABASE_SERVICE_ROLE_KEY: ${envStatus?.SUPABASE_SERVICE_ROLE_KEY ? 'Configured' : 'Not Set'}
+${envStatus?.ANTHROPIC_API_KEY ? '✓' : '❌'} ANTHROPIC_API_KEY: ${envStatus?.ANTHROPIC_API_KEY ? 'Configured' : 'Not Set'}
+${envStatus?.MICROSOFT_CLIENT_ID ? '✓' : '❌'} MICROSOFT_CLIENT_ID: ${envStatus?.MICROSOFT_CLIENT_ID ? 'Configured' : 'Not Set'}
+${envStatus?.MICROSOFT_CLIENT_SECRET ? '✓' : '❌'} MICROSOFT_CLIENT_SECRET: ${envStatus?.MICROSOFT_CLIENT_SECRET ? 'Configured' : 'Not Set'}
+${envStatus?.WEBHOOK_BASE_URL ? '✓' : '❌'} WEBHOOK_BASE_URL: ${envStatus?.WEBHOOK_BASE_URL ? 'Configured' : 'Not Set'}`}
+              </pre>
+            </div>
+
+            <div style={{
+              padding: '16px',
+              backgroundColor: '#f0f9ff',
+              borderRadius: '6px',
+              borderLeft: '4px solid #3b82f6'
+            }}>
+              <h4 style={{ margin: '0 0 8px 0', color: '#1e40af' }}>Troubleshooting</h4>
+              <ol style={{ margin: 0, paddingLeft: '20px', color: '#1e40af' }}>
+                <li>If "No refresh token available" - remove and re-add affected clients</li>
+                <li>Check webhook subscriptions in Vercel deployment logs</li>
+                <li>Test email automation with a simple test email</li>
+                <li>Verify Microsoft Graph permissions are properly granted</li>
+              </ol>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 50
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '24px',
+            maxWidth: '400px',
+            width: '90%'
+          }}>
+            <h3 style={{
+              fontSize: '18px',
+              fontWeight: 'bold',
+              marginBottom: '16px',
+              color: '#dc2626'
+            }}>
+              ⚠️ Delete Client
+            </h3>
+            <p style={{
+              marginBottom: '24px',
+              color: '#374151'
+            }}>
+              Are you sure you want to delete this client? This will:
+            </p>
+            <ul style={{
+              marginBottom: '24px',
+              paddingLeft: '20px',
+              color: '#6b7280'
+            }}>
+              <li>Remove all client data and settings</li>
+              <li>Disable email webhooks</li>
+              <li>Delete all email processing logs</li>
+              <li>This action cannot be undone</li>
+            </ul>
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                onClick={() => setShowDeleteConfirm(null)}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#f3f4f6',
+                  color: '#374151',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteClient(showDeleteConfirm)}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#dc2626',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                Delete Client
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Client Modal */}
       {showManageModal && selectedClient && (
         <div style={{
           position: 'fixed',
@@ -534,7 +1119,65 @@ export default function ClientDashboard() {
               overflowY: 'auto',
               padding: '24px'
             }}>
-              {/* ... existing status overview section ... */}
+              {/* Client Status Overview */}
+              <div style={{
+                background: 'linear-gradient(to right, #f0fdf4, #eff6ff)',
+                padding: '20px',
+                borderRadius: '12px',
+                marginBottom: '24px',
+                border: '1px solid #e5e7eb'
+              }}>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                  gap: '20px',
+                  textAlign: 'center' as const
+                }}>
+                  <div>
+                    <div style={{
+                      fontSize: '24px',
+                      fontWeight: 'bold',
+                      color: '#059669'
+                    }}>
+                      {selectedClient.emails_processed ?? 0}
+                    </div>
+                    <div style={{
+                      fontSize: '12px',
+                      color: '#6b7280'
+                    }}>
+                      Emails Processed
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{
+                      fontSize: '24px',
+                      fontWeight: 'bold',
+                      color: '#2563eb'
+                    }}>
+                      {clientSettings.autoResponse ? 'ON' : 'OFF'}
+                    </div>
+                    <div style={{
+                      fontSize: '12px',
+                      color: '#6b7280'
+                    }}>
+                      Auto Response
+                    </div>
+                  </div>
+                  <div>
+                    <span style={{
+                      display: 'inline-flex',
+                      padding: '6px 12px',
+                      borderRadius: '20px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      backgroundColor: selectedClient.is_active !== false ? '#dcfce7' : '#fef2f2',
+                      color: selectedClient.is_active !== false ? '#16a34a' : '#dc2626'
+                    }}>
+                      {selectedClient.is_active !== false ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                </div>
+              </div>
 
               {/* AI Response Settings */}
               <div style={{
@@ -607,7 +1250,7 @@ export default function ClientDashboard() {
                   </div>
                 </div>
 
-                {/* ✅ NEW: Custom AI Instructions */}
+                {/* Custom AI Instructions */}
                 <div style={{ marginTop: '24px' }}>
                   <label style={{
                     display: 'block',
@@ -629,9 +1272,9 @@ export default function ClientDashboard() {
                     }}
                     placeholder="Add specific instructions for the AI agent, such as:
 • Client prefers Zoom meetings over in-person
-• Always mention availability within 24 hours
+• Never assume meeting locations
+• Always check calendar before suggesting meeting times
 • Keep responses under 3 sentences
-• Never assume prior meeting locations
 • Client is based in EST timezone"
                   />
                   <div style={{
@@ -647,7 +1290,105 @@ export default function ClientDashboard() {
                   </div>
                 </div>
 
-                {/* ... existing auto-response toggle ... */}
+                {/* Auto Response Toggle */}
+                <div style={{
+                  marginTop: '24px',
+                  padding: '20px',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: '8px'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '16px'
+                  }}>
+                    <div>
+                      <h4 style={{
+                        fontWeight: '600',
+                        color: '#111827',
+                        margin: 0,
+                        fontSize: '16px'
+                      }}>
+                        Automatic AI Responses
+                      </h4>
+                      <p style={{
+                        fontSize: '14px',
+                        color: '#6b7280',
+                        margin: '4px 0 0 0'
+                      }}>
+                        Enable AI to automatically create draft responses
+                      </p>
+                    </div>
+                    <label style={{
+                      position: 'relative',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      cursor: 'pointer'
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={clientSettings.autoResponse}
+                        onChange={(e) => setClientSettings({...clientSettings, autoResponse: e.target.checked})}
+                        style={{ display: 'none' }}
+                      />
+                      <div style={{
+                        width: '48px',
+                        height: '28px',
+                        backgroundColor: clientSettings.autoResponse ? '#2563eb' : '#d1d5db',
+                        borderRadius: '14px',
+                        position: 'relative',
+                        transition: 'background-color 0.2s'
+                      }}>
+                        <div style={{
+                          width: '20px',
+                          height: '20px',
+                          backgroundColor: 'white',
+                          borderRadius: '50%',
+                          position: 'absolute',
+                          top: '4px',
+                          left: clientSettings.autoResponse ? '24px' : '4px',
+                          transition: 'left 0.2s'
+                        }} />
+                      </div>
+                    </label>
+                  </div>
+
+                  {clientSettings.autoResponse && (
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                      gap: '16px'
+                    }}>
+                      <div>
+                        <label style={{
+                          display: 'block',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#374151',
+                          marginBottom: '8px'
+                        }}>
+                          Response Delay (minutes)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="30"
+                          value={clientSettings.responseDelay}
+                          onChange={(e) => setClientSettings({...clientSettings, responseDelay: parseInt(e.target.value)})}
+                          style={inputStyle}
+                        />
+                        <p style={{
+                          fontSize: '12px',
+                          color: '#6b7280',
+                          margin: '4px 0 0 0'
+                        }}>
+                          Wait time in minutes (0 = immediate)
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Email Signature */}
@@ -662,9 +1403,7 @@ export default function ClientDashboard() {
                   fontSize: '16px',
                   fontWeight: '600',
                   marginBottom: '16px',
-                  color: '#111827',
-                  display: 'flex',
-                  alignItems: 'center'
+                  color: '#111827'
                 }}>
                   ✍️ Email Signature
                 </h3>
@@ -677,11 +1416,11 @@ export default function ClientDashboard() {
                     resize: 'vertical' as const,
                     fontFamily: 'monospace'
                   }}
-                  placeholder="Best regards,&#10;John Doe&#10;CEO, Company Name&#10;phone@email.com"
+                  placeholder="Best regards,&#10;John Doe&#10;CEO, Company Name"
                 />
               </div>
 
-              {/* Email Address Filters */}
+              {/* Email Filters */}
               <div style={{
                 backgroundColor: 'white',
                 border: '1px solid #e5e7eb',
@@ -699,9 +1438,7 @@ export default function ClientDashboard() {
                     fontSize: '16px',
                     fontWeight: '600',
                     color: '#111827',
-                    margin: 0,
-                    display: 'flex',
-                    alignItems: 'center'
+                    margin: 0
                   }}>
                     🚫 Email Address Filters
                   </h3>
@@ -726,7 +1463,6 @@ export default function ClientDashboard() {
                 <div style={{ marginBottom: '16px' }}>
                   {clientSettings.emailFilters.map((filter, index) => (
                     <div key={index} style={{
-                      position: 'relative',
                       marginBottom: '12px',
                       display: 'flex',
                       alignItems: 'center',
@@ -754,31 +1490,14 @@ export default function ClientDashboard() {
                             width: '36px',
                             height: '36px',
                             cursor: 'pointer',
-                            fontSize: '16px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
+                            fontSize: '16px'
                           }}
-                          title="Remove this email filter"
                         >
                           ×
                         </button>
                       )}
                     </div>
                   ))}
-                </div>
-                
-                <div style={{
-                  fontSize: '14px',
-                  color: '#6b7280',
-                  backgroundColor: '#fef3c7',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  border: '1px solid #f59e0b'
-                }}>
-                  <strong>Email Filters:</strong> Add email addresses that should NOT receive AI responses. 
-                  Perfect for filtering out marketing emails, bank notifications, authentication codes, 
-                  and internal company emails. Supports exact email matches only.
                 </div>
               </div>
 
@@ -799,9 +1518,7 @@ export default function ClientDashboard() {
                     fontSize: '16px',
                     fontWeight: '600',
                     color: '#111827',
-                    margin: 0,
-                    display: 'flex',
-                    alignItems: 'center'
+                    margin: 0
                   }}>
                     📝 Email Writing Examples
                   </h3>
@@ -823,7 +1540,7 @@ export default function ClientDashboard() {
                   </button>
                 </div>
                 
-                <div style={{ marginBottom: '16px' }}>
+                <div>
                   {clientSettings.sampleEmails.map((email, index) => (
                     <div key={index} style={{
                       position: 'relative',
@@ -836,7 +1553,7 @@ export default function ClientDashboard() {
                         color: '#374151',
                         marginBottom: '8px'
                       }}>
-                        Writing Example #{index + 1}
+                        Example #{index + 1}
                       </label>
                       <textarea
                         value={email}
@@ -844,10 +1561,9 @@ export default function ClientDashboard() {
                         rows={5}
                         style={{
                           ...inputStyle,
-                          paddingRight: clientSettings.sampleEmails.length > 1 ? '40px' : '16px',
                           resize: 'vertical' as const
                         }}
-                        placeholder="Paste an example email you've written so the AI can learn your style..."
+                        placeholder="Paste an example email..."
                       />
                       {clientSettings.sampleEmails.length > 1 && (
                         <button
@@ -864,8 +1580,7 @@ export default function ClientDashboard() {
                             width: '24px',
                             height: '24px',
                             cursor: 'pointer',
-                            fontSize: '16px',
-                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                            fontSize: '16px'
                           }}
                         >
                           ×
@@ -873,15 +1588,6 @@ export default function ClientDashboard() {
                       )}
                     </div>
                   ))}
-                </div>
-                <div style={{
-                  fontSize: '14px',
-                  color: '#6b7280',
-                  backgroundColor: '#eff6ff',
-                  padding: '12px',
-                  borderRadius: '8px'
-                }}>
-                  <strong>How it works:</strong> Add 2-3 examples of emails you've written. The AI will learn your writing style, tone, and common phrases to create responses that sound like you.
                 </div>
               </div>
             </div>
@@ -899,7 +1605,7 @@ export default function ClientDashboard() {
                 fontSize: '14px',
                 color: '#6b7280'
               }}>
-                Changes take effect immediately for new incoming emails
+                Changes take effect immediately
               </div>
               <div style={{
                 display: 'flex',
@@ -930,8 +1636,7 @@ export default function ClientDashboard() {
                     borderRadius: '6px',
                     cursor: 'pointer',
                     fontSize: '14px',
-                    fontWeight: '500',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                    fontWeight: '500'
                   }}
                 >
                   Save Settings
