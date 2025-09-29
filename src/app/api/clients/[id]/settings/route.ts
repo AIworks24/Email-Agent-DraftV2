@@ -5,6 +5,7 @@ import { settingsSchema, safeValidate } from '@/lib/validation';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
