@@ -440,18 +440,21 @@ async function generateAndCreateDraftReplyDelayed(
     const senderEmail = extractEmailAddress(emailDetails.from);
     console.log('📧 Email from:', senderEmail);
 
-    // CRITICAL FIX: Update database with real email details immediately
-    await supabase!
+    // Update database with real email details (removed 'body' field that might not exist)
+    const { error: detailsUpdateError } = await supabase!
       .from('email_logs')
       .update({
         subject: emailDetails.subject || 'No subject',
         sender_email: senderEmail,
         from_email: senderEmail,
-        body: sanitizeEmailContent(emailDetails.body?.content || ''),
-        status: 'processing',
-        updated_at: new Date().toISOString()
+        status: 'processing'
       })
       .eq('id', emailLogId);
+
+    if (detailsUpdateError) {
+      console.error('Warning: Could not update email details:', detailsUpdateError);
+      // Continue anyway - don't let this break the whole process
+    }
 
     // Get client template settings INCLUDING email filters
     const { data: template } = await supabase
@@ -504,7 +507,7 @@ async function generateAndCreateDraftReplyDelayed(
 
     const aiResponse = await aiProcessor.generateResponse(context);
     
-    // Create draft with notification preservation
+    // Create draft
     const draftResult = await graphService.createDraftReply(
       emailDetails.id,
       aiResponse,
@@ -512,14 +515,13 @@ async function generateAndCreateDraftReplyDelayed(
       false
     );
 
-    // Update with draft creation status and draft ID
+    // Update with draft creation status
     const { error: updateError } = await supabase!
       .from('email_logs')
       .update({
         status: 'draft_created',
         ai_response: aiResponse,
-        draft_message_id: draftResult.draftId,
-        updated_at: new Date().toISOString()
+        draft_message_id: draftResult.draftId
       })
       .eq('id', emailLogId);
 
@@ -529,10 +531,10 @@ async function generateAndCreateDraftReplyDelayed(
       console.log('✅ Email log updated with draft tracking ID:', draftResult.draftId);
     }
     
-    console.log('✅ Draft created successfully with notifications preserved and tracked for auto-deletion');
+    console.log('✅ Draft created successfully');
 
   } catch (error) {
-    console.error('❌ Delayed AI processing error:', error);
-    await updateEmailLogStatus(emailLogId, 'error', `Delayed AI error: ${error instanceof Error ? error.message : 'Unknown'}`);
+    console.error('❌ AI processing error:', error);
+    await updateEmailLogStatus(emailLogId, 'error', `AI error: ${error instanceof Error ? error.message : 'Unknown'}`);
   }
 }
