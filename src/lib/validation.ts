@@ -1,4 +1,3 @@
-// src/lib/validation.ts - Fixed ZodError handling
 import { z } from 'zod';
 
 export const clientSchema = z.object({
@@ -13,16 +12,15 @@ export const settingsSchema = z.object({
   signature: z.string().max(500, 'Signature too long'),
   sampleEmails: z.array(z.string().max(2000, 'Email example too long')).max(5, 'Too many examples'),
   autoResponse: z.boolean(),
-  responseDelay: z.number().min(0, 'Delay cannot be negative').max(30, 'Delay too long')
+  responseDelay: z.number().min(0, 'Delay cannot be negative').max(30, 'Delay too long'),
+  customInstructions: z.string().max(2000, 'Instructions too long').optional() // ✅ NEW
 });
 
-// Safe validation wrapper - doesn't throw errors, returns results
 export function safeValidate<T>(schema: z.ZodSchema<T>, data: any): { success: boolean; data?: T; errors?: string[] } {
   try {
     const result = schema.parse(data);
     return { success: true, data: result };
   } catch (error: any) {
-    // Fix: Handle ZodError properly
     if (error?.issues && Array.isArray(error.issues)) {
       return { 
         success: false, 

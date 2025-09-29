@@ -1,17 +1,16 @@
-// Fixed: src/lib/aiProcessor.ts
-// Corrected signature handling and conversation threading
-
+// src/lib/aiProcessor.ts - Enhanced with calendar and custom instructions
 export interface EmailContext {
   subject: string;
   fromEmail: string;
   body: string;
   conversationHistory?: string;
-  originalMessage?: any; // Add full original message context
+  originalMessage?: any;
   clientTemplate: {
     writingStyle: string;
     tone: string;
     signature: string;
     sampleEmails: string[];
+    customInstructions?: string; // ✅ NEW
   };
   calendarAvailability?: any[];
 }
@@ -62,8 +61,7 @@ export class AIEmailProcessor {
       const data = await response.json();
       const aiText = data.content?.[0]?.text || '';
       
-      // Format response WITHOUT adding signature here (signature will be in template)
-      return this.formatResponse(aiText, false); // Don't add signature in formatting
+      return this.formatResponse(aiText, false);
     } catch (error) {
       console.error('AI processing error:', error);
       throw new Error(`Failed to generate AI response: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -98,7 +96,6 @@ export class AIEmailProcessor {
       const data = await response.json();
       const responseText = data.content?.[0]?.text || '';
       
-      // Parse the structured response (expecting JSON)
       try {
         const parsed = JSON.parse(responseText);
         return {
@@ -108,7 +105,6 @@ export class AIEmailProcessor {
           reasoning: parsed.reasoning
         };
       } catch (parseError) {
-        // Fallback if response isn't JSON
         return {
           content: responseText,
           confidence: 0.7,
@@ -139,13 +135,12 @@ export class AIEmailProcessor {
       weekday: 'long'
     }).format(now);
   
-    // Build conversation history if available
     let conversationText = '';
     if (context.conversationHistory) {
       conversationText = `CONVERSATION HISTORY:\n${context.conversationHistory}\n\n`;
     }
 
-    // Format calendar availability in readable format
+    // ✅ ENHANCED: Format calendar availability with better context
     let calendarText = '';
     if (context.calendarAvailability && context.calendarAvailability.length > 0) {
       const events = context.calendarAvailability.map(event => {
@@ -166,16 +161,21 @@ export class AIEmailProcessor {
         });
         return `${event.subject || 'Busy'}: ${startStr} - ${endStr}`;
       });
-      calendarText = `CALENDAR AVAILABILITY (Next 7 days):\n${events.join('\n')}\n\n`;
+      calendarText = `CALENDAR AVAILABILITY (Next 7 days):\n${events.join('\n')}\n\nIMPORTANT: When discussing meeting times, reference these scheduled events to avoid conflicts and suggest times when the calendar is free.\n\n`;
     }
 
-    // Include sample emails for style reference
     let sampleEmailsText = '';
     if (context.clientTemplate.sampleEmails && context.clientTemplate.sampleEmails.length > 0) {
       const validSamples = context.clientTemplate.sampleEmails.filter(sample => sample.trim());
       if (validSamples.length > 0) {
         sampleEmailsText = `WRITING STYLE EXAMPLES:\n${validSamples.map((sample, index) => `Example ${index + 1}:\n${sample.trim()}`).join('\n\n')}\n\n`;
       }
+    }
+
+    // ✅ NEW: Include custom instructions if provided
+    let customInstructionsText = '';
+    if (context.clientTemplate.customInstructions && context.clientTemplate.customInstructions.trim()) {
+      customInstructionsText = `CRITICAL CUSTOM INSTRUCTIONS (MUST FOLLOW):\n${context.clientTemplate.customInstructions.trim()}\n\n`;
     }
 
     return `You are an AI email assistant helping to write professional email responses that match the user's personal writing style and tone.
@@ -193,7 +193,7 @@ CLIENT COMMUNICATION PREFERENCES:
 - Tone: ${context.clientTemplate.tone}
 - Email Signature: ${context.clientTemplate.signature}
 
-${sampleEmailsText}${calendarText}IMPORTANT INSTRUCTIONS:
+${sampleEmailsText}${calendarText}${customInstructionsText}IMPORTANT INSTRUCTIONS:
 1. Write a response that acknowledges the sender's message appropriately
 2. Address their main points or questions directly
 3. Match the specified writing style and tone exactly
@@ -203,6 +203,9 @@ ${sampleEmailsText}${calendarText}IMPORTANT INSTRUCTIONS:
 7. Write in paragraph format with proper spacing
 8. Do not include a subject line
 9. Keep the response focused and actionable
+10. CRITICAL: Follow all custom instructions above - do not make assumptions that contradict them
+11. CRITICAL: If calendar data is provided, respect existing commitments and only suggest free times
+12. NEVER assume information not explicitly stated (e.g., meeting locations, prior agreements, etc.)
 
 Write only the email body content without any signature or closing. The signature will be added automatically by the system.`;
   }
@@ -235,21 +238,17 @@ Return only valid JSON.`;
   }
 
   private formatResponse(aiText: string, addSignature: boolean = false): string {
-    // Clean up the AI response
     let formatted = aiText.trim();
     
-    // Remove any subject line that might have been included
     formatted = formatted.replace(/^Subject:.*\n?/im, '').trim();
     
-    // Remove any signature-like content that AI might have added
     formatted = formatted.replace(/Best regards,?\n?.*$/im, '').trim();
     formatted = formatted.replace(/Sincerely,?\n?.*$/im, '').trim();
     formatted = formatted.replace(/Kind regards,?\n?.*$/im, '').trim();
     formatted = formatted.replace(/Thank you,?\n?.*$/im, '').trim();
     
-    // Convert to proper HTML formatting for email
     formatted = formatted
-      .split('\n\n') // Split on double newlines (paragraphs)
+      .split('\n\n')
       .map(paragraph => paragraph.trim())
       .filter(paragraph => paragraph.length > 0)
       .map(paragraph => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
@@ -298,26 +297,22 @@ Return only valid JSON.`;
 
   async getConversationHistory(messageId: string, graphService: any): Promise<string> {
     try {
-      // Get the original message details
       const originalMessage = await graphService.getEmailDetails(messageId);
       
       if (!originalMessage || !originalMessage.conversationId) {
         return '';
       }
 
-      // Get all messages in the conversation thread
       const conversationMessages = await graphService.getConversationThread(originalMessage.conversationId);
       
       if (!conversationMessages || conversationMessages.length <= 1) {
         return '';
       }
 
-      // Sort messages by received date
       const sortedMessages = conversationMessages
         .sort((a: any, b: any) => new Date(a.receivedDateTime).getTime() - new Date(b.receivedDateTime).getTime())
-        .slice(0, -1); // Remove the last message (current one we're replying to)
+        .slice(0, -1);
 
-      // Format conversation history
       const history = sortedMessages.map((msg: any, index: number) => {
         const from = msg.from?.emailAddress?.address || 'Unknown';
         const date = new Date(msg.receivedDateTime).toLocaleDateString();
@@ -334,10 +329,8 @@ Return only valid JSON.`;
   }
 
   private cleanEmailBody(htmlContent: string): string {
-    // Remove HTML tags and decode entities
     let cleaned = htmlContent.replace(/<[^>]*>/g, '');
     
-    // Decode common HTML entities
     cleaned = cleaned
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
@@ -346,7 +339,6 @@ Return only valid JSON.`;
       .replace(/&#39;/g, "'")
       .replace(/&nbsp;/g, ' ');
 
-    // Remove excessive whitespace and truncate if too long
     cleaned = cleaned.replace(/\s+/g, ' ').trim();
     
     if (cleaned.length > 500) {
@@ -354,5 +346,29 @@ Return only valid JSON.`;
     }
     
     return cleaned;
+  }
+
+  // ✅ NEW: Helper method to format calendar events for better AI understanding
+  formatCalendarForAI(events: any[]): string {
+    if (!events || events.length === 0) {
+      return 'No calendar events in the next 7 days - schedule is currently open.';
+    }
+
+    const formattedEvents = events.map(event => {
+      const start = new Date(event.start?.dateTime || event.start?.date);
+      const end = new Date(event.end?.dateTime || event.end?.date);
+      
+      return {
+        subject: event.subject || 'Busy',
+        start: start,
+        end: end,
+        dayOfWeek: start.toLocaleDateString('en-US', { weekday: 'long' }),
+        timeSlot: `${start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - ${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+      };
+    });
+
+    return formattedEvents
+      .map(e => `${e.dayOfWeek}: ${e.subject} (${e.timeSlot})`)
+      .join('\n');
   }
 }

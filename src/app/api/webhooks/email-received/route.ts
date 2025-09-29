@@ -379,8 +379,6 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       subject: emailSubject
     });
 
-    // CORRECT FIX: Update email details WITHOUT changing status
-    // Status stays as 'pending' (from the initial insert) until processing completes
     console.log('💾 Updating email log with actual details...');
     const { error: updateError } = await supabase!
       .from('email_logs')
@@ -389,7 +387,6 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
         sender_email: senderEmail,
         from_email: senderEmail,
         original_body: emailBody,
-        // NOTE: NOT updating status here - it stays 'pending'
         updated_at: new Date().toISOString()
       })
       .eq('id', emailLogId);
@@ -416,7 +413,8 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       sampleEmails: template?.sample_emails || [],
       autoResponse: template?.auto_response !== false,
       responseDelay: template?.response_delay || 0,
-      emailFilters: template?.email_filters || []
+      emailFilters: template?.email_filters || [],
+      customInstructions: template?.custom_instructions || '' // ✅ NEW
     };
 
     if (!clientTemplate.autoResponse) {
@@ -436,6 +434,27 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       return;
     }
 
+    // ✅ NEW: Fetch calendar availability for next 7 days
+    let calendarAvailability = null;
+    try {
+      console.log('📅 Fetching calendar availability...');
+      const startTime = new Date().toISOString();
+      const endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days ahead
+      
+      const calendarEvents = await graphService.getCalendarEvents(startTime, endTime);
+      
+      if (calendarEvents && calendarEvents.value && calendarEvents.value.length > 0) {
+        calendarAvailability = calendarEvents.value;
+        console.log(`✅ Found ${calendarEvents.value.length} calendar events in next 7 days`);
+      } else {
+        console.log('📅 No calendar events found in next 7 days');
+      }
+    } catch (calendarError) {
+      console.error('⚠️ Calendar fetch failed (non-critical):', calendarError);
+      // Calendar is optional - don't fail the whole process
+      calendarAvailability = null;
+    }
+
     console.log('✅ Generating AI response...');
 
     const aiProcessor = new AIEmailProcessor(anthropicApiKey);
@@ -445,7 +464,7 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       body: emailBody,
       clientTemplate,
       conversationHistory: '',
-      calendarAvailability: null
+      calendarAvailability // ✅ NOW INCLUDES REAL CALENDAR DATA
     };
 
     const aiResponse = await aiProcessor.generateResponse(context);
@@ -457,7 +476,6 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       false
     );
 
-    // NOW update status to 'draft_created' along with draft info
     const { error: finalUpdateError } = await supabase!
       .from('email_logs')
       .update({

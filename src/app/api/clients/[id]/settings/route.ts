@@ -1,9 +1,8 @@
-// src/app/api/clients/[id]/settings/route.ts - Fixed variable scoping
+// src/app/api/clients/[id]/settings/route.ts - Updated with custom_instructions
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { settingsSchema, safeValidate } from '@/lib/validation';
 
-// Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -23,7 +22,6 @@ export async function PUT(
     console.log('💾 Saving settings for client:', clientId);
     console.log('📥 Incoming settings:', rawSettings);
 
-    // STEP 1: Fetch existing template to preserve unchanged fields
     const { data: existingTemplate } = await supabase
       .from('email_templates')
       .select('*')
@@ -33,7 +31,6 @@ export async function PUT(
 
     console.log('📊 Existing template:', existingTemplate);
 
-    // STEP 2: Validate incoming settings
     const validation = safeValidate(settingsSchema, rawSettings);
     let settings: any;
     
@@ -44,19 +41,17 @@ export async function PUT(
       settings = validation.data;
     }
 
-    // STEP 3: Clean up email filters
     const emailFilters = (settings.emailFilters || [])
       .map((email: string) => email.trim().toLowerCase())
       .filter((email: string) => email.length > 0 && email.includes('@'));
 
     console.log('🧹 Cleaned email filters:', emailFilters);
 
-    // STEP 4: Build update object - ONLY include fields that were sent
     const updateData: any = {
       updated_at: new Date().toISOString()
     };
 
-    // Only update fields that are present in the request
+    // Update all fields including custom_instructions
     if (settings.writingStyle !== undefined) {
       updateData.writing_style = settings.writingStyle;
     }
@@ -77,6 +72,10 @@ export async function PUT(
     }
     if (settings.emailFilters !== undefined) {
       updateData.email_filters = emailFilters;
+    }
+    // ✅ NEW: Handle custom instructions
+    if (settings.customInstructions !== undefined) {
+      updateData.custom_instructions = settings.customInstructions;
     }
 
     console.log('📝 Update data:', updateData);
@@ -104,6 +103,7 @@ export async function PUT(
           signature: settings.signature || '',
           sample_emails: settings.sampleEmails || [''],
           email_filters: emailFilters,
+          custom_instructions: settings.customInstructions || '', // ✅ NEW
           is_active: true,
           auto_response: settings.autoResponse !== false,
           response_delay: settings.responseDelay || 0,
@@ -148,7 +148,6 @@ export async function GET(
 
     console.log('📖 Fetching settings for client:', clientId);
 
-    // Fetch the email template from database
     const { data: template, error: templateError } = await supabase
       .from('email_templates')
       .select('*')
@@ -162,7 +161,6 @@ export async function GET(
 
     console.log('📊 Database template:', template);
 
-    // CRITICAL FIX: Properly map ALL database fields with correct defaults
     const settings = {
       writingStyle: template?.writing_style || 'professional',
       tone: template?.tone || 'friendly',
@@ -172,10 +170,10 @@ export async function GET(
         : [''],
       autoResponse: template?.auto_response !== false,
       responseDelay: template?.response_delay || 0,
-      // CRITICAL: Map email_filters from database to emailFilters for frontend
       emailFilters: (template?.email_filters && template.email_filters.length > 0)
         ? template.email_filters
-        : ['']
+        : [''],
+      customInstructions: template?.custom_instructions || '' // ✅ NEW
     };
 
     console.log('✅ Returning mapped settings:', settings);
@@ -184,8 +182,7 @@ export async function GET(
       settings,
       debug: {
         templateFound: !!template,
-        rawEmailFilters: template?.email_filters,
-        mappedEmailFilters: settings.emailFilters
+        hasCustomInstructions: !!template?.custom_instructions
       }
     });
   } catch (error) {

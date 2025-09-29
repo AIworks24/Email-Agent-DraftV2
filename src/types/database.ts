@@ -113,7 +113,11 @@ export interface Database {
           tone: string;
           signature: string;
           sample_emails: string[];
+          email_filters: string[];
+          custom_instructions: string; // ✅ NEW FIELD
           is_default: boolean;
+          auto_response: boolean;
+          response_delay: number;
           created_at: string;
           updated_at: string;
         };
@@ -126,7 +130,10 @@ export interface Database {
           tone: string;
           signature: string;
           sample_emails?: string[];
+          custom_instructions?: string; // ✅ NEW FIELD
           is_default?: boolean;
+          auto_response?: boolean;
+          response_delay?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -139,7 +146,10 @@ export interface Database {
           tone?: string;
           signature?: string;
           sample_emails?: string[];
+          custom_instructions?: string; // ✅ NEW FIELD
           is_default?: boolean;
+          auto_response?: boolean;
+          response_delay?: number;
           created_at?: string;
           updated_at?: string;
         };
