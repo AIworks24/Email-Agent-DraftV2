@@ -353,17 +353,14 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
   try {
     console.log('🤖 Starting AI processing for email:', messageId);
 
-    // Validate email account
     if (!emailAccount || !emailAccount.id || !emailAccount.is_active) {
-      throw new Error(`Invalid email account: ${JSON.stringify(emailAccount)}`);
+      throw new Error(`Invalid email account`);
     }
 
-    // Initialize Graph service
     const { getValidAccessToken } = await import('@/lib/tokenRefresh');
     const validToken = await getValidAccessToken(emailAccount.id);
     const graphService = new GraphService(validToken);
 
-    // STEP 1: Fetch email details
     console.log('📥 Fetching email details...');
     const emailDetails = await graphService.getEmailDetailsPreservingNotifications(messageId);
     
@@ -373,32 +370,26 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       return;
     }
 
-    console.log('✅ Email details retrieved:', {
-      subject: emailDetails.subject,
-      from: emailDetails.from?.emailAddress?.address
-    });
-
-    // STEP 2: Extract email data
     const senderEmail = extractEmailAddress(emailDetails.from);
     const emailSubject = emailDetails.subject || 'No subject';
     const emailBody = sanitizeEmailContent(emailDetails.body?.content || '');
 
     console.log('📧 Extracted data:', {
       sender: senderEmail,
-      subject: emailSubject,
-      bodyLength: emailBody.length
+      subject: emailSubject
     });
 
-    // CRITICAL FIX: Update email log with actual details IMMEDIATELY
+    // CORRECT FIX: Update email details WITHOUT changing status
+    // Status stays as 'pending' (from the initial insert) until processing completes
     console.log('💾 Updating email log with actual details...');
     const { error: updateError } = await supabase!
       .from('email_logs')
       .update({
         subject: emailSubject,
         sender_email: senderEmail,
-        from_email: senderEmail, // Update BOTH fields
+        from_email: senderEmail,
         original_body: emailBody,
-        status: 'processing',
+        // NOTE: NOT updating status here - it stays 'pending'
         updated_at: new Date().toISOString()
       })
       .eq('id', emailLogId);
@@ -408,9 +399,9 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       throw new Error(`Database update failed: ${updateError.message}`);
     }
 
-    console.log('✅ Email log updated successfully');
+    console.log('✅ Email log updated with actual data');
 
-    // STEP 3: Get client template settings
+    // Get client template settings
     const { data: template } = await supabase
       .from('email_templates')
       .select('*')
@@ -428,32 +419,25 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       emailFilters: template?.email_filters || []
     };
 
-    // STEP 4: Check auto-response setting
     if (!clientTemplate.autoResponse) {
-      console.log('⏭️ Auto-response disabled for client');
+      console.log('⏭️ Auto-response disabled');
       await updateEmailLogStatus(emailLogId, 'skipped', 'Auto-response disabled');
       return;
     }
 
-    // STEP 5: Check email filters
     const normalizedSender = senderEmail.toLowerCase().trim();
     const isFiltered = clientTemplate.emailFilters.some((filterEmail: string) => {
       return filterEmail.toLowerCase().trim() === normalizedSender;
     });
 
     if (isFiltered) {
-      console.log('🚫 Email filtered - sender in filter list:', senderEmail);
-      await updateEmailLogStatus(
-        emailLogId, 
-        'filtered', 
-        `Sender ${senderEmail} is in the client's filter list`
-      );
+      console.log('🚫 Email filtered:', senderEmail);
+      await updateEmailLogStatus(emailLogId, 'filtered', `Sender ${senderEmail} is filtered`);
       return;
     }
 
-    console.log('✅ Email passed all checks, generating AI response...');
+    console.log('✅ Generating AI response...');
 
-    // STEP 6: Generate AI response
     const aiProcessor = new AIEmailProcessor(anthropicApiKey);
     const context: EmailContext = {
       subject: emailSubject,
@@ -465,9 +449,7 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
     };
 
     const aiResponse = await aiProcessor.generateResponse(context);
-    console.log('✅ AI response generated');
-
-    // STEP 7: Create draft reply
+    
     const draftResult = await graphService.createDraftReply(
       emailDetails.id,
       aiResponse,
@@ -475,9 +457,7 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       false
     );
 
-    console.log('✅ Draft created:', draftResult.draftId);
-
-    // STEP 8: Update email log with final status
+    // NOW update status to 'draft_created' along with draft info
     const { error: finalUpdateError } = await supabase!
       .from('email_logs')
       .update({
@@ -491,11 +471,9 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
 
     if (finalUpdateError) {
       console.error('❌ Failed to update final status:', finalUpdateError);
-    } else {
-      console.log('✅ Email log updated with draft ID');
     }
 
-    console.log('🎉 AI processing completed successfully');
+    console.log('🎉 Processing completed successfully');
 
   } catch (error) {
     console.error('❌ AI processing error:', error);
