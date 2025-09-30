@@ -433,23 +433,23 @@ export class GraphService {
       console.log('   Start:', startTime);
       console.log('   End:', endTime);
 
-      // Get user's timezone first
-      console.log('📅 [GraphService] Fetching user mailbox settings...');
-      const profile = await this.client
-        .api('/me/mailboxSettings')
-        .get();
-      
-      const userTimezone = profile.timeZone || 'UTC';
-      console.log('📅 [GraphService] User timezone:', userTimezone);
+      // ✅ FIX: Skip mailbox settings and use Eastern Time directly
+      // The mailboxSettings API requires additional permissions we don't have
+      const userTimezone = 'Eastern Standard Time'; // Default to EST
+      console.log('📅 [GraphService] Using timezone:', userTimezone);
       
       // Build the query
+      console.log('📅 [GraphService] Building calendar query...');
       const query = this.client
-        .api('/me/events')
-        .filter(`start/dateTime ge '${startTime}' and end/dateTime le '${endTime}'`)
-        .select('subject,start,end,location,attendees,isAllDay,showAs')
+        .api('/me/calendarView') // ✅ Use calendarView instead of events (better for date ranges)
+        .query({
+          startDateTime: startTime,
+          endDateTime: endTime
+        })
+        .select('subject,start,end,location,attendees,isAllDay,showAs,organizer')
         .header('Prefer', `outlook.timezone="${userTimezone}"`)
         .orderby('start/dateTime')
-        .top(50); // Limit to 50 events
+        .top(50);
       
       console.log('📅 [GraphService] Executing calendar query...');
       const events = await query.get();
@@ -463,16 +463,17 @@ export class GraphService {
       });
 
       if (events?.value && events.value.length > 0) {
-        console.log('📅 [GraphService] Events found:', events.value.length);
+        console.log('📅 [GraphService] ✅ Events found:', events.value.length);
         events.value.forEach((event: any, i: number) => {
-          console.log(`   Event ${i + 1}:`, {
-            subject: event.subject,
+          console.log(`   📅 Event ${i + 1}:`, {
+            subject: event.subject || 'No subject',
             start: event.start?.dateTime,
-            end: event.end?.dateTime
+            end: event.end?.dateTime,
+            isAllDay: event.isAllDay
           });
         });
       } else {
-        console.log('📅 [GraphService] No events found in response');
+        console.log('📅 [GraphService] No events found in date range');
       }
 
       return events;
@@ -481,7 +482,16 @@ export class GraphService {
       console.error('   Message:', error.message);
       console.error('   Code:', error.code);
       console.error('   Status:', error.statusCode);
-      console.error('   Full error:', error);
+      
+      // Provide more specific error info
+      if (error.statusCode === 403) {
+        console.error('   🚨 403 Forbidden - Calendar.Read permission issue');
+        console.error('   Possible causes:');
+        console.error('   1. Token missing Calendars.Read scope');
+        console.error('   2. User needs to re-consent to calendar permissions');
+        console.error('   3. Calendar access not granted by admin');
+      }
+      
       throw error;
     }
   }
