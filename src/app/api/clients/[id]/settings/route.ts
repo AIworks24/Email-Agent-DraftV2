@@ -1,7 +1,6 @@
-// src/app/api/clients/[id]/settings/route.ts - Updated with custom_instructions
+// src/app/api/clients/[id]/settings/route.ts - FIXED with detailed logging
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { settingsSchema, safeValidate } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -19,70 +18,95 @@ export async function PUT(
     const clientId = params.id;
     const rawSettings = await request.json();
 
-    console.log('💾 Saving settings for client:', clientId);
-    console.log('📥 Incoming settings:', rawSettings);
+    console.log('💾 ==========================================');
+    console.log('💾 SAVING SETTINGS FOR CLIENT:', clientId);
+    console.log('💾 ==========================================');
+    console.log('📥 RAW INCOMING SETTINGS:', JSON.stringify(rawSettings, null, 2));
 
-    const { data: existingTemplate } = await supabase
+    // Fetch existing template
+    const { data: existingTemplate, error: fetchError } = await supabase
       .from('email_templates')
       .select('*')
       .eq('client_id', clientId)
       .eq('name', 'Default Template')
       .single();
 
-    console.log('📊 Existing template:', existingTemplate);
-
-    const validation = safeValidate(settingsSchema, rawSettings);
-    let settings: any;
-    
-    if (!validation.success) {
-      console.warn('⚠️ Settings validation failed:', validation.errors);
-      settings = rawSettings;
-    } else {
-      settings = validation.data;
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      console.error('❌ Error fetching existing template:', fetchError);
     }
 
-    const emailFilters = (settings.emailFilters || [])
-      .map((email: string) => email.trim().toLowerCase())
-      .filter((email: string) => email.length > 0 && email.includes('@'));
+    console.log('📊 EXISTING TEMPLATE:', existingTemplate ? 'Found' : 'Not found');
+    if (existingTemplate) {
+      console.log('   Current email_filters:', existingTemplate.email_filters);
+    }
 
-    console.log('🧹 Cleaned email filters:', emailFilters);
+    // ✅ CRITICAL FIX: Clean up email filters properly
+    console.log('🧹 CLEANING EMAIL FILTERS...');
+    console.log('   Raw emailFilters from request:', rawSettings.emailFilters);
+    
+    let emailFilters: string[] = [];
+    
+    if (Array.isArray(rawSettings.emailFilters)) {
+      emailFilters = rawSettings.emailFilters
+        .map((email: string) => {
+          const cleaned = email.trim().toLowerCase();
+          console.log(`   Processing: "${email}" → "${cleaned}"`);
+          return cleaned;
+        })
+        .filter((email: string) => {
+          const isValid = email.length > 0 && email.includes('@');
+          console.log(`   Valid check: "${email}" = ${isValid}`);
+          return isValid;
+        });
+    }
 
+    console.log('✅ CLEANED EMAIL FILTERS:', emailFilters);
+    console.log('   Count:', emailFilters.length);
+
+    // Build update data object
     const updateData: any = {
       updated_at: new Date().toISOString()
     };
 
-    // Update all fields including custom_instructions
-    if (settings.writingStyle !== undefined) {
-      updateData.writing_style = settings.writingStyle;
+    // Only update fields that are present in the request
+    if (rawSettings.writingStyle !== undefined) {
+      updateData.writing_style = rawSettings.writingStyle;
+      console.log('   ✓ Writing style:', rawSettings.writingStyle);
     }
-    if (settings.tone !== undefined) {
-      updateData.tone = settings.tone;
+    if (rawSettings.tone !== undefined) {
+      updateData.tone = rawSettings.tone;
+      console.log('   ✓ Tone:', rawSettings.tone);
     }
-    if (settings.signature !== undefined) {
-      updateData.signature = settings.signature;
+    if (rawSettings.signature !== undefined) {
+      updateData.signature = rawSettings.signature;
+      console.log('   ✓ Signature length:', rawSettings.signature.length);
     }
-    if (settings.sampleEmails !== undefined) {
-      updateData.sample_emails = settings.sampleEmails;
+    if (rawSettings.sampleEmails !== undefined) {
+      updateData.sample_emails = rawSettings.sampleEmails;
+      console.log('   ✓ Sample emails count:', rawSettings.sampleEmails.length);
     }
-    if (settings.autoResponse !== undefined) {
-      updateData.auto_response = settings.autoResponse;
+    if (rawSettings.autoResponse !== undefined) {
+      updateData.auto_response = rawSettings.autoResponse;
+      console.log('   ✓ Auto response:', rawSettings.autoResponse);
     }
-    if (settings.responseDelay !== undefined) {
-      updateData.response_delay = settings.responseDelay;
+    if (rawSettings.responseDelay !== undefined) {
+      updateData.response_delay = rawSettings.responseDelay;
+      console.log('   ✓ Response delay:', rawSettings.responseDelay);
     }
-    if (settings.emailFilters !== undefined) {
-      updateData.email_filters = emailFilters;
+    if (rawSettings.customInstructions !== undefined) {
+      updateData.custom_instructions = rawSettings.customInstructions;
+      console.log('   ✓ Custom instructions length:', rawSettings.customInstructions.length);
     }
-    // ✅ NEW: Handle custom instructions
-    if (settings.customInstructions !== undefined) {
-      updateData.custom_instructions = settings.customInstructions;
-    }
+    
+    // ✅ CRITICAL: Always include email_filters in update
+    updateData.email_filters = emailFilters;
+    console.log('   ✓ Email filters:', emailFilters);
 
-    console.log('📝 Update data:', updateData);
+    console.log('📝 FINAL UPDATE DATA:', JSON.stringify(updateData, null, 2));
 
     let result;
     if (existingTemplate) {
-      console.log('✏️ Updating existing template:', existingTemplate.id);
+      console.log('✏️ UPDATING EXISTING TEMPLATE:', existingTemplate.id);
       
       result = await supabase
         .from('email_templates')
@@ -91,22 +115,22 @@ export async function PUT(
         .select()
         .single();
     } else {
-      console.log('➕ Creating new template');
+      console.log('➕ CREATING NEW TEMPLATE');
       
       result = await supabase
         .from('email_templates')
         .insert({
           client_id: clientId,
           name: 'Default Template',
-          writing_style: settings.writingStyle || 'professional',
-          tone: settings.tone || 'friendly',
-          signature: settings.signature || '',
-          sample_emails: settings.sampleEmails || [''],
+          writing_style: rawSettings.writingStyle || 'professional',
+          tone: rawSettings.tone || 'friendly',
+          signature: rawSettings.signature || '',
+          sample_emails: rawSettings.sampleEmails || [''],
           email_filters: emailFilters,
-          custom_instructions: settings.customInstructions || '', // ✅ NEW
+          custom_instructions: rawSettings.customInstructions || '',
           is_active: true,
-          auto_response: settings.autoResponse !== false,
-          response_delay: settings.responseDelay || 0,
+          auto_response: rawSettings.autoResponse !== false,
+          response_delay: rawSettings.responseDelay || 0,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
@@ -115,23 +139,39 @@ export async function PUT(
     }
 
     if (result.error) {
-      console.error('❌ Database error:', result.error);
+      console.error('❌ DATABASE ERROR:', result.error);
       return NextResponse.json({ 
         error: result.error.message,
         details: result.error 
       }, { status: 500 });
     }
 
-    console.log('✅ Settings saved successfully');
+    console.log('✅ SETTINGS SAVED SUCCESSFULLY!');
+    console.log('   Template ID:', result.data.id);
+    console.log('   Email filters in DB:', result.data.email_filters);
+    console.log('💾 ==========================================');
+
+    // Verify the save by reading it back
+    const { data: verification } = await supabase
+      .from('email_templates')
+      .select('email_filters')
+      .eq('id', result.data.id)
+      .single();
+
+    console.log('🔍 VERIFICATION READ:', verification?.email_filters);
 
     return NextResponse.json({ 
       message: 'Settings saved successfully',
       data: result.data,
+      verification: {
+        emailFiltersCount: result.data.email_filters?.length || 0,
+        emailFilters: result.data.email_filters
+      },
       updated: Object.keys(updateData).filter(k => k !== 'updated_at')
     });
 
   } catch (error) {
-    console.error('❌ Settings save error:', error);
+    console.error('❌ SETTINGS SAVE ERROR:', error);
     return NextResponse.json({ 
       error: 'Failed to save settings',
       details: error instanceof Error ? error.message : 'Unknown error'
@@ -146,7 +186,7 @@ export async function GET(
   try {
     const clientId = params.id;
 
-    console.log('📖 Fetching settings for client:', clientId);
+    console.log('📖 FETCHING SETTINGS FOR CLIENT:', clientId);
 
     const { data: template, error: templateError } = await supabase
       .from('email_templates')
@@ -159,8 +199,13 @@ export async function GET(
       console.error('❌ Error fetching template:', templateError);
     }
 
-    console.log('📊 Database template:', template);
+    console.log('📊 DATABASE TEMPLATE:', {
+      found: !!template,
+      email_filters: template?.email_filters,
+      filter_count: template?.email_filters?.length || 0
+    });
 
+    // Map database fields to frontend format
     const settings = {
       writingStyle: template?.writing_style || 'professional',
       tone: template?.tone || 'friendly',
@@ -173,20 +218,25 @@ export async function GET(
       emailFilters: (template?.email_filters && template.email_filters.length > 0)
         ? template.email_filters
         : [''],
-      customInstructions: template?.custom_instructions || '' // ✅ NEW
+      customInstructions: template?.custom_instructions || ''
     };
 
-    console.log('✅ Returning mapped settings:', settings);
+    console.log('✅ RETURNING MAPPED SETTINGS:', {
+      emailFilters: settings.emailFilters,
+      filterCount: settings.emailFilters.length
+    });
 
     return NextResponse.json({ 
       settings,
       debug: {
         templateFound: !!template,
+        rawEmailFilters: template?.email_filters,
+        mappedEmailFilters: settings.emailFilters,
         hasCustomInstructions: !!template?.custom_instructions
       }
     });
   } catch (error) {
-    console.error('❌ Settings GET error:', error);
+    console.error('❌ SETTINGS GET ERROR:', error);
     return NextResponse.json({ 
       error: 'Failed to load settings',
       details: error instanceof Error ? error.message : 'Unknown error'

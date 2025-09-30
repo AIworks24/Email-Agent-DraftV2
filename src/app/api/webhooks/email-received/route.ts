@@ -531,11 +531,10 @@ async function generateAndCreateDraftReplyDelayed(
   try {
     console.log('🤖 Generating delayed AI response for:', emailDetails.subject);
 
-    // Get sender email address
     const senderEmail = extractEmailAddress(emailDetails.from);
     console.log('📧 Email from:', senderEmail);
 
-    // Get client template settings INCLUDING email filters
+    // Get client template settings
     const { data: template } = await supabase
       .from('email_templates')
       .select('*')
@@ -550,7 +549,8 @@ async function generateAndCreateDraftReplyDelayed(
       sampleEmails: template?.sample_emails || [],
       autoResponse: template?.auto_response !== false,
       responseDelay: template?.response_delay || 0,
-      emailFilters: template?.email_filters || []
+      emailFilters: template?.email_filters || [],
+      customInstructions: template?.custom_instructions || '' // ✅ ADD THIS
     };
 
     if (!clientTemplate.autoResponse) {
@@ -558,7 +558,7 @@ async function generateAndCreateDraftReplyDelayed(
       return;
     }
 
-    // NEW: Check if sender email is in the filter list
+    // Check email filters
     const normalizedSender = senderEmail.toLowerCase().trim();
     const isFiltered = clientTemplate.emailFilters.some((filterEmail: string) => {
       const normalizedFilter = filterEmail.toLowerCase().trim();
@@ -571,9 +571,28 @@ async function generateAndCreateDraftReplyDelayed(
       return;
     }
 
+    // ✅ FIX: Fetch calendar data HERE too!
+    let calendarAvailability = null;
+    try {
+      console.log('📅 Fetching calendar for delayed processing...');
+      const startTime = new Date().toISOString();
+      const endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      
+      const calendarEvents = await graphService.getCalendarEvents(startTime, endTime);
+      
+      if (calendarEvents && calendarEvents.value && calendarEvents.value.length > 0) {
+        calendarAvailability = calendarEvents.value;
+        console.log(`✅ Found ${calendarEvents.value.length} calendar events for delayed processing`);
+      } else {
+        console.log('📅 No calendar events found');
+      }
+    } catch (calendarError) {
+      console.error('⚠️ Calendar fetch failed:', calendarError);
+      calendarAvailability = null;
+    }
+
     console.log('✅ Email passed filter check - proceeding with AI processing');
 
-    // Continue with existing AI processing logic...
     const aiProcessor = new AIEmailProcessor(anthropicApiKey);
     const context: EmailContext = {
       subject: emailDetails.subject || '',
@@ -581,12 +600,11 @@ async function generateAndCreateDraftReplyDelayed(
       body: sanitizeEmailContent(emailDetails.body?.content || ''),
       clientTemplate,
       conversationHistory: '',
-      calendarAvailability: null
+      calendarAvailability // ✅ CHANGED from null to calendarAvailability variable
     };
 
     const aiResponse = await aiProcessor.generateResponse(context);
     
-    // Create draft with the FIXED method that preserves unread status
     const draftResult = await graphService.createDraftReply(
       emailDetails.id,
       aiResponse,
@@ -610,7 +628,7 @@ async function generateAndCreateDraftReplyDelayed(
       console.log('✅ Email log updated with draft tracking ID:', draftResult.draftId);
     }
     
-    console.log('✅ Delayed draft created successfully with notifications preserved and tracked for auto-deletion');
+    console.log('✅ Delayed draft created successfully with calendar data and notifications preserved');
 
   } catch (error) {
     console.error('❌ Delayed AI processing error:', error);
