@@ -437,25 +437,86 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
     // ✅ NEW: Fetch calendar availability for next 7 days
     let calendarAvailability = null;
     try {
-      console.log('📅 Fetching calendar availability...');
-      const startTime = new Date().toISOString();
-      const endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days ahead
+      console.log('📅 ========================================');
+      console.log('📅 STARTING CALENDAR FETCH');
+      console.log('📅 ========================================');
       
+      const startTime = new Date().toISOString();
+      const endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      
+      console.log('📅 Query parameters:', {
+        startTime: new Date(startTime).toLocaleString(),
+        endTime: new Date(endTime).toLocaleString()
+      });
+
+      console.log('📅 Calling graphService.getCalendarEvents()...');
       const calendarEvents = await graphService.getCalendarEvents(startTime, endTime);
       
+      console.log('📅 Raw calendar response:', {
+        typeOfResponse: typeof calendarEvents,
+        hasValue: !!calendarEvents?.value,
+        isArray: Array.isArray(calendarEvents?.value),
+        valueLength: calendarEvents?.value?.length,
+        responseKeys: Object.keys(calendarEvents || {})
+      });
+
+      // Log the raw response structure
+      console.log('📅 Full response structure:', JSON.stringify(calendarEvents, null, 2));
+
       if (calendarEvents && calendarEvents.value && calendarEvents.value.length > 0) {
         calendarAvailability = calendarEvents.value;
-        console.log(`✅ Found ${calendarEvents.value.length} calendar events in next 7 days`);
+        
+        console.log('✅ CALENDAR DATA LOADED SUCCESSFULLY!');
+        console.log(`   Event count: ${calendarEvents.value.length}`);
+        
+        // Log each event in detail
+        calendarEvents.value.forEach((event: any, index: number) => {
+          console.log(`   📅 Event ${index + 1}:`, {
+            subject: event.subject || 'No subject',
+            start: event.start?.dateTime || event.start?.date,
+            end: event.end?.dateTime || event.end?.date,
+            isAllDay: event.isAllDay,
+            location: event.location?.displayName,
+            showAs: event.showAs
+          });
+        });
+        
+        console.log('📅 calendarAvailability variable is now:', calendarAvailability);
       } else {
-        console.log('📅 No calendar events found in next 7 days');
+        console.log('📅 No calendar events found (calendar appears empty)');
+        console.log('   This could mean:');
+        console.log('   1. No events exist in the next 7 days');
+        console.log('   2. Events exist but API returned empty');
+        console.log('   3. Wrong calendar is being queried');
+        calendarAvailability = null;
       }
-    } catch (calendarError) {
-      console.error('⚠️ Calendar fetch failed (non-critical):', calendarError);
-      // Calendar is optional - don't fail the whole process
+      
+      console.log('📅 ========================================');
+      console.log('📅 CALENDAR FETCH COMPLETE');
+      console.log('📅 Final calendarAvailability value:', calendarAvailability ? `${calendarAvailability.length} events` : 'null');
+      console.log('📅 ========================================');
+
+    } catch (calendarError: any) {
+      console.error('❌ ========================================');
+      console.error('❌ CALENDAR FETCH ERROR');
+      console.error('❌ ========================================');
+      console.error('❌ Error type:', calendarError.constructor.name);
+      console.error('❌ Error message:', calendarError.message);
+      console.error('❌ Error code:', calendarError.code);
+      console.error('❌ Status code:', calendarError.statusCode);
+      console.error('❌ Full error:', JSON.stringify(calendarError, null, 2));
+      console.error('❌ ========================================');
+      
       calendarAvailability = null;
     }
 
-    console.log('✅ Generating AI response...');
+    console.log('🤖 About to create AI context...');
+    console.log('🤖 calendarAvailability before context creation:', {
+      isNull: calendarAvailability === null,
+      isUndefined: calendarAvailability === undefined,
+      type: typeof calendarAvailability,
+      value: calendarAvailability ? `Array with ${calendarAvailability.length} items` : 'null/undefined'
+    });
 
     const aiProcessor = new AIEmailProcessor(anthropicApiKey);
     const context: EmailContext = {
@@ -464,9 +525,22 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       body: emailBody,
       clientTemplate,
       conversationHistory: '',
-      calendarAvailability // ✅ NOW INCLUDES REAL CALENDAR DATA
+      calendarAvailability // ✅ Passing the variable
     };
 
+    console.log('🤖 Context created. Checking what was passed to AI:');
+    console.log('   context.calendarAvailability:', {
+      exists: !!context.calendarAvailability,
+      type: typeof context.calendarAvailability,
+      isArray: Array.isArray(context.calendarAvailability),
+      length: context.calendarAvailability?.length || 0,
+      firstEvent: context.calendarAvailability?.[0] ? {
+        subject: context.calendarAvailability[0].subject,
+        start: context.calendarAvailability[0].start?.dateTime
+      } : 'No events'
+    });
+
+    console.log('🤖 Calling AI processor...');
     const aiResponse = await aiProcessor.generateResponse(context);
     
     const draftResult = await graphService.createDraftReply(

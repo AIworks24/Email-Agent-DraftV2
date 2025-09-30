@@ -429,24 +429,59 @@ export class GraphService {
    */
   async getCalendarEvents(startTime: string, endTime: string) {
     try {
+      console.log('📅 [GraphService] getCalendarEvents called');
+      console.log('   Start:', startTime);
+      console.log('   End:', endTime);
+
       // Get user's timezone first
+      console.log('📅 [GraphService] Fetching user mailbox settings...');
       const profile = await this.client
         .api('/me/mailboxSettings')
         .get();
       
       const userTimezone = profile.timeZone || 'UTC';
+      console.log('📅 [GraphService] User timezone:', userTimezone);
       
-      const events = await this.client
+      // Build the query
+      const query = this.client
         .api('/me/events')
         .filter(`start/dateTime ge '${startTime}' and end/dateTime le '${endTime}'`)
-        .select('subject,start,end,location,attendees')
+        .select('subject,start,end,location,attendees,isAllDay,showAs')
         .header('Prefer', `outlook.timezone="${userTimezone}"`)
         .orderby('start/dateTime')
-        .get();
+        .top(50); // Limit to 50 events
+      
+      console.log('📅 [GraphService] Executing calendar query...');
+      const events = await query.get();
+
+      console.log('📅 [GraphService] Calendar API response:', {
+        hasValue: !!events?.value,
+        valueType: typeof events?.value,
+        isArray: Array.isArray(events?.value),
+        count: events?.value?.length || 0,
+        responseKeys: Object.keys(events || {})
+      });
+
+      if (events?.value && events.value.length > 0) {
+        console.log('📅 [GraphService] Events found:', events.value.length);
+        events.value.forEach((event: any, i: number) => {
+          console.log(`   Event ${i + 1}:`, {
+            subject: event.subject,
+            start: event.start?.dateTime,
+            end: event.end?.dateTime
+          });
+        });
+      } else {
+        console.log('📅 [GraphService] No events found in response');
+      }
 
       return events;
-    } catch (error) {
-      console.error('Error fetching calendar events:', error);
+    } catch (error: any) {
+      console.error('❌ [GraphService] getCalendarEvents ERROR:');
+      console.error('   Message:', error.message);
+      console.error('   Code:', error.code);
+      console.error('   Status:', error.statusCode);
+      console.error('   Full error:', error);
       throw error;
     }
   }

@@ -1,4 +1,4 @@
-// src/lib/aiProcessor.ts - Enhanced with calendar and custom instructions
+// src/lib/aiProcessor.ts - ENHANCED with stronger calendar emphasis
 export interface EmailContext {
   subject: string;
   fromEmail: string;
@@ -10,7 +10,7 @@ export interface EmailContext {
     tone: string;
     signature: string;
     sampleEmails: string[];
-    customInstructions?: string; // ✅ NEW
+    customInstructions?: string;
   };
   calendarAvailability?: any[];
 }
@@ -34,7 +34,29 @@ export class AIEmailProcessor {
 
   async generateResponse(context: EmailContext): Promise<string> {
     try {
+      console.log('🤖 ========================================');
+      console.log('🤖 AI PROCESSOR RECEIVED CONTEXT');
+      console.log('🤖 ========================================');
+      console.log('📅 Calendar data received:', {
+        hasCalendar: !!context.calendarAvailability,
+        isNull: context.calendarAvailability === null,
+        isUndefined: context.calendarAvailability === undefined,
+        isArray: Array.isArray(context.calendarAvailability),
+        eventCount: context.calendarAvailability?.length || 0,
+        events: context.calendarAvailability?.map(e => ({
+          subject: e.subject,
+          start: e.start?.dateTime
+        }))
+      });
+      console.log('🤖 ========================================');
+      
       const prompt = this.buildPrompt(context);
+      
+      console.log('📝 FULL AI PROMPT BEING SENT:');
+      console.log('=====================================');
+      console.log(prompt);
+      console.log('=====================================');
+      console.log('📝 Prompt length:', prompt.length, 'characters');
       
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -61,11 +83,159 @@ export class AIEmailProcessor {
       const data = await response.json();
       const aiText = data.content?.[0]?.text || '';
       
+      console.log('✅ AI Response generated:', {
+        length: aiText.length,
+        preview: aiText.substring(0, 150)
+      });
+      
       return this.formatResponse(aiText, false);
     } catch (error) {
       console.error('AI processing error:', error);
       throw new Error(`Failed to generate AI response: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  private buildPrompt(context: EmailContext): string {
+    const now = new Date();
+    const easternTime = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short'
+    }).format(now);
+
+    const dayOfWeek = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      weekday: 'long'
+    }).format(now);
+  
+    let conversationText = '';
+    if (context.conversationHistory) {
+      conversationText = `CONVERSATION HISTORY:\n${context.conversationHistory}\n\n`;
+    }
+
+    // ✅ CRITICAL FIX: Enhanced calendar formatting with clear blocked times
+    let calendarText = '';
+    if (context.calendarAvailability && context.calendarAvailability.length > 0) {
+      console.log('📅 Formatting calendar data for AI prompt...');
+      
+      const events = context.calendarAvailability.map((event, index) => {
+        const start = new Date(event.start?.dateTime || event.start?.date);
+        const end = new Date(event.end?.dateTime || event.end?.date);
+        
+        const dayOfWeek = start.toLocaleDateString('en-US', { weekday: 'long' });
+        const date = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const startTime = start.toLocaleTimeString('en-US', { 
+          hour: 'numeric', 
+          minute: '2-digit',
+          timeZone: 'America/New_York'
+        });
+        const endTime = end.toLocaleTimeString('en-US', { 
+          hour: 'numeric', 
+          minute: '2-digit',
+          timeZone: 'America/New_York'
+        });
+        
+        console.log(`   Event ${index + 1}: ${dayOfWeek} ${date}, ${startTime}-${endTime} - ${event.subject || 'Busy'}`);
+        
+        return `   • ${dayOfWeek}, ${date}: ${startTime} - ${endTime} → BLOCKED (${event.subject || 'Busy'})`;
+      });
+      
+      calendarText = `
+═══════════════════════════════════════════════════════════════
+🚨 CRITICAL CALENDAR INFORMATION - MUST FOLLOW 🚨
+═══════════════════════════════════════════════════════════════
+
+MY CALENDAR FOR THE NEXT 7 DAYS (Eastern Time):
+
+${events.join('\n')}
+
+⚠️ CRITICAL RULES FOR SCHEDULING:
+1. The times listed above are BLOCKED and UNAVAILABLE
+2. DO NOT suggest any meeting times that overlap with these blocked times
+3. If asked about availability during a blocked time, I am NOT available
+4. Only suggest times that do NOT conflict with the calendar above
+5. If uncertain, ask for their availability instead of suggesting times
+6. Always reference "checking my calendar" when discussing availability
+
+═══════════════════════════════════════════════════════════════
+`;
+    } else {
+      calendarText = `
+═══════════════════════════════════════════════════════════════
+📅 CALENDAR STATUS
+═══════════════════════════════════════════════════════════════
+
+My calendar is currently open for the next 7 days - no conflicts found.
+You may suggest meeting times freely, but still ask for their preferences.
+
+═══════════════════════════════════════════════════════════════
+`;
+    }
+
+    let sampleEmailsText = '';
+    if (context.clientTemplate.sampleEmails && context.clientTemplate.sampleEmails.length > 0) {
+      const validSamples = context.clientTemplate.sampleEmails.filter(sample => sample.trim());
+      if (validSamples.length > 0) {
+        sampleEmailsText = `WRITING STYLE EXAMPLES:\n${validSamples.map((sample, index) => `Example ${index + 1}:\n${sample.trim()}`).join('\n\n')}\n\n`;
+      }
+    }
+
+    // ✅ Enhanced custom instructions section
+    let customInstructionsText = '';
+    if (context.clientTemplate.customInstructions && context.clientTemplate.customInstructions.trim()) {
+      customInstructionsText = `
+═══════════════════════════════════════════════════════════════
+🎯 CRITICAL CUSTOM INSTRUCTIONS - HIGHEST PRIORITY 🎯
+═══════════════════════════════════════════════════════════════
+
+${context.clientTemplate.customInstructions.trim()}
+
+⚠️ These instructions override all other guidelines. Follow them exactly.
+
+═══════════════════════════════════════════════════════════════
+`;
+    }
+
+    return `You are an AI email assistant helping to write professional email responses that match the user's personal writing style and tone.
+
+CURRENT DATE AND TIME: ${easternTime}
+TODAY IS: ${dayOfWeek}
+
+${conversationText}INCOMING EMAIL:
+Subject: ${context.subject}
+From: ${context.fromEmail}
+Body: ${context.body}
+
+CLIENT COMMUNICATION PREFERENCES:
+- Writing Style: ${context.clientTemplate.writingStyle}
+- Tone: ${context.clientTemplate.tone}
+- Email Signature: ${context.clientTemplate.signature}
+
+${sampleEmailsText}${calendarText}${customInstructionsText}
+═══════════════════════════════════════════════════════════════
+📋 RESPONSE INSTRUCTIONS
+═══════════════════════════════════════════════════════════════
+
+1. Write a response that acknowledges the sender's message appropriately
+2. Address their main points or questions directly
+3. Match the specified writing style and tone exactly
+4. Use natural, conversational language that matches the examples provided
+5. 🚨 CRITICAL: If discussing meeting times, ONLY suggest times that do NOT conflict with my blocked calendar times above
+6. 🚨 CRITICAL: Never assume availability during blocked calendar times
+7. If they ask about a specific time that's blocked, clearly state I'm not available then and recommend an available time
+8. Do NOT include any signature or closing in your response - the signature will be added automatically
+9. Write in paragraph format with proper spacing
+10. Do not include a subject line
+11. Keep the response focused and actionable
+12. CRITICAL: Follow all custom instructions above - do not make assumptions that contradict them
+13. NEVER assume information not explicitly stated (e.g., meeting locations, prior agreements, etc.)
+
+Write only the email body content without any signature or closing. The signature will be added automatically by the system.`;
   }
 
   async generateWithAnalysis(context: EmailContext): Promise<AIResponse> {
@@ -115,99 +285,6 @@ export class AIEmailProcessor {
       console.error('AI analysis error:', error);
       throw new Error(`Failed to generate AI analysis: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
-
-  private buildPrompt(context: EmailContext): string {
-    const now = new Date();
-    const easternTime = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/New_York',
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZoneName: 'short'
-    }).format(now);
-
-    const dayOfWeek = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/New_York',
-      weekday: 'long'
-    }).format(now);
-  
-    let conversationText = '';
-    if (context.conversationHistory) {
-      conversationText = `CONVERSATION HISTORY:\n${context.conversationHistory}\n\n`;
-    }
-
-    // ✅ ENHANCED: Format calendar availability with better context
-    let calendarText = '';
-    if (context.calendarAvailability && context.calendarAvailability.length > 0) {
-      const events = context.calendarAvailability.map(event => {
-        const start = new Date(event.start?.dateTime || event.start?.date);
-        const end = new Date(event.end?.dateTime || event.end?.date);
-        const startStr = start.toLocaleDateString('en-US', { 
-          weekday: 'long', 
-          month: 'short', 
-          day: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-          timeZoneName: 'short'
-        });
-        const endStr = end.toLocaleTimeString('en-US', { 
-          hour: 'numeric',
-          minute: '2-digit',
-          timeZoneName: 'short'
-        });
-        return `${event.subject || 'Busy'}: ${startStr} - ${endStr}`;
-      });
-      calendarText = `CALENDAR AVAILABILITY (Next 7 days):\n${events.join('\n')}\n\nIMPORTANT: When discussing meeting times, reference these scheduled events to avoid conflicts and suggest times when the calendar is free.\n\n`;
-    }
-
-    let sampleEmailsText = '';
-    if (context.clientTemplate.sampleEmails && context.clientTemplate.sampleEmails.length > 0) {
-      const validSamples = context.clientTemplate.sampleEmails.filter(sample => sample.trim());
-      if (validSamples.length > 0) {
-        sampleEmailsText = `WRITING STYLE EXAMPLES:\n${validSamples.map((sample, index) => `Example ${index + 1}:\n${sample.trim()}`).join('\n\n')}\n\n`;
-      }
-    }
-
-    // ✅ NEW: Include custom instructions if provided
-    let customInstructionsText = '';
-    if (context.clientTemplate.customInstructions && context.clientTemplate.customInstructions.trim()) {
-      customInstructionsText = `CRITICAL CUSTOM INSTRUCTIONS (MUST FOLLOW):\n${context.clientTemplate.customInstructions.trim()}\n\n`;
-    }
-
-    return `You are an AI email assistant helping to write professional email responses that match the user's personal writing style and tone.
-
-CURRENT DATE AND TIME: ${easternTime}
-TODAY IS: ${dayOfWeek}
-
-${conversationText}INCOMING EMAIL:
-Subject: ${context.subject}
-From: ${context.fromEmail}
-Body: ${context.body}
-
-CLIENT COMMUNICATION PREFERENCES:
-- Writing Style: ${context.clientTemplate.writingStyle}
-- Tone: ${context.clientTemplate.tone}
-- Email Signature: ${context.clientTemplate.signature}
-
-${sampleEmailsText}${calendarText}${customInstructionsText}IMPORTANT INSTRUCTIONS:
-1. Write a response that acknowledges the sender's message appropriately
-2. Address their main points or questions directly
-3. Match the specified writing style and tone exactly
-4. Use natural, conversational language that matches the examples provided
-5. If mentioning availability, use natural language like "tomorrow afternoon" or "Wednesday morning"
-6. Do NOT include any signature or closing in your response - the signature will be added automatically
-7. Write in paragraph format with proper spacing
-8. Do not include a subject line
-9. Keep the response focused and actionable
-10. CRITICAL: Follow all custom instructions above - do not make assumptions that contradict them
-11. CRITICAL: If calendar data is provided, respect existing commitments and only suggest free times
-12. NEVER assume information not explicitly stated (e.g., meeting locations, prior agreements, etc.)
-
-Write only the email body content without any signature or closing. The signature will be added automatically by the system.`;
   }
 
   private buildAnalysisPrompt(context: EmailContext): string {
