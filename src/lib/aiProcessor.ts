@@ -118,31 +118,56 @@ export class AIEmailProcessor {
       conversationText = `CONVERSATION HISTORY:\n${context.conversationHistory}\n\n`;
     }
 
-    // ✅ CRITICAL FIX: Enhanced calendar formatting with clear blocked times
+    // ✅ CRITICAL FIX: Parse calendar times correctly - they're already in Eastern Time
     let calendarText = '';
     if (context.calendarAvailability && context.calendarAvailability.length > 0) {
       console.log('📅 Formatting calendar data for AI prompt...');
       
       const events = context.calendarAvailability.map((event, index) => {
-        const start = new Date(event.start?.dateTime || event.start?.date);
-        const end = new Date(event.end?.dateTime || event.end?.date);
+        // ✅ The datetime from Microsoft Graph is ALREADY in Eastern Time
+        // Format: '2025-10-02T12:00:00.0000000' means 12:00 PM Eastern
+        // We need to treat it as a local time string, not UTC
         
-        const dayOfWeek = start.toLocaleDateString('en-US', { weekday: 'long' });
-        const date = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        const startTime = start.toLocaleTimeString('en-US', { 
-          hour: 'numeric', 
-          minute: '2-digit',
-          timeZone: 'America/New_York'
-        });
-        const endTime = end.toLocaleTimeString('en-US', { 
-          hour: 'numeric', 
-          minute: '2-digit',
-          timeZone: 'America/New_York'
-        });
+        const startStr = event.start?.dateTime || event.start?.date;
+        const endStr = event.end?.dateTime || event.end?.date;
         
+        // Parse as Eastern Time by appending timezone info
+        const start = new Date(startStr + 'Z'); // Temporarily parse as UTC
+        const end = new Date(endStr + 'Z');
+        
+        // But the Graph API already gave us Eastern Time, so we need to display it directly
+        // Extract hour/minute from the ISO string directly
+        const startParts = startStr.match(/T(\d{2}):(\d{2})/);
+        const endParts = endStr.match(/T(\d{2}):(\d{2})/);
+        
+        if (!startParts || !endParts) {
+          console.error('❌ Failed to parse time from:', startStr);
+          return '';
+        }
+        
+        const startHour = parseInt(startParts[1]);
+        const startMin = startParts[2];
+        const endHour = parseInt(endParts[1]);
+        const endMin = endParts[2];
+        
+        // Format as 12-hour time
+        const formatTime = (hour: number, min: string) => {
+          const period = hour >= 12 ? 'PM' : 'AM';
+          const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+          return `${hour12}:${min} ${period}`;
+        };
+        
+        const startTime = formatTime(startHour, startMin);
+        const endTime = formatTime(endHour, endMin);
+        
+        // Get day of week and date
+        const dayOfWeek = start.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+        const date = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+        
+        const formattedEvent = `   • ${dayOfWeek}, ${date}: ${startTime} - ${endTime} → BLOCKED (${event.subject || 'Busy'})`;
         console.log(`   Event ${index + 1}: ${dayOfWeek} ${date}, ${startTime}-${endTime} - ${event.subject || 'Busy'}`);
         
-        return `   • ${dayOfWeek}, ${date}: ${startTime} - ${endTime} → BLOCKED (${event.subject || 'Busy'})`;
+        return formattedEvent;
       });
       
       calendarText = `
@@ -227,7 +252,7 @@ ${sampleEmailsText}${calendarText}${customInstructionsText}
 4. Use natural, conversational language that matches the examples provided
 5. 🚨 CRITICAL: If discussing meeting times, ONLY suggest times that do NOT conflict with my blocked calendar times above
 6. 🚨 CRITICAL: Never assume availability during blocked calendar times
-7. If they ask about a specific time that's blocked, clearly state I'm not available then and recommend an available time
+7. If they ask about a specific time that's blocked, clearly state I'm not available then and recommend another available time
 8. Do NOT include any signature or closing in your response - the signature will be added automatically
 9. Write in paragraph format with proper spacing
 10. Do not include a subject line
