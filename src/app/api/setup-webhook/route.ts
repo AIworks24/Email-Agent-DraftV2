@@ -47,61 +47,56 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Check if there's already an active subscription
-    const { data: existingSubscription } = await supabase
+    // Check if there are already active subscriptions
+    const { data: existingSubscriptions } = await supabase
       .from('webhook_subscriptions')
       .select('*')
       .eq('email_account_id', emailAccount.id)
-      .eq('is_active', true)
-      .single();
+      .eq('is_active', true);
 
-    // If subscription exists and still valid (more than 10 minutes remaining), return it
-    if (existingSubscription) {
-      const expiresAt = new Date(existingSubscription.expires_at);
+    // Check if BOTH subscription types exist (creation and deletion)
+    const creationSub = existingSubscriptions?.find(s => 
+      !s.client_state?.includes('-delete')
+    );
+    const deletionSub = existingSubscriptions?.find(s => 
+      s.client_state?.includes('-delete')
+    );
+
+    // If BOTH exist and are valid, return early
+    if (creationSub && deletionSub) {
+      const creationExpires = new Date(creationSub.expires_at);
+      const deletionExpires = new Date(deletionSub.expires_at);
       const tenMinsFromNow = new Date(Date.now() + 10 * 60 * 1000);
       
-      if (expiresAt > tenMinsFromNow) {
-        console.log('Existing valid subscription found');
+      const bothValid = creationExpires > tenMinsFromNow && deletionExpires > tenMinsFromNow;
+      
+      if (bothValid) {
+        console.log('Both creation and deletion webhooks exist and are valid');
         return NextResponse.json({
-          message: 'Webhook subscription already active',
-          subscription: { id: existingSubscription.subscription_id },
-          expiresAt: existingSubscription.expires_at,
+          message: 'Both webhook subscriptions already active',
+          subscriptions: {
+            creation: { id: creationSub.subscription_id, expiresAt: creationSub.expires_at },
+            deletion: { id: deletionSub.subscription_id, expiresAt: deletionSub.expires_at }
+          },
           status: 'existing'
         });
       }
-      
-      // Existing subscription is expiring soon, try to renew it
-      try {
-        console.log('Attempting to renew expiring subscription...');
-        const validToken = await getValidAccessToken(emailAccount.id);
-        const graphService = new GraphService(validToken);
-        
-        const renewedSub = await graphService.renewSubscription(existingSubscription.subscription_id);
-        
-        // Update database with new expiration
-        await supabase
-          .from('webhook_subscriptions')
-          .update({
-            expires_at: renewedSub.expirationDateTime,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existingSubscription.id);
+    }
 
-        console.log('✅ Subscription renewed successfully');
-        return NextResponse.json({
-          message: 'Webhook subscription renewed successfully',
-          subscription: renewedSub,
-          expiresAt: renewedSub.expirationDateTime,
-          status: 'renewed'
-        });
-      } catch (renewError) {
-        console.log('Renewal failed, creating new subscription:', renewError);
-        // Mark old subscription as inactive and create new one below
-        await supabase
-          .from('webhook_subscriptions')
-          .update({ is_active: false })
-          .eq('id', existingSubscription.id);
-      }
+    // If we get here, we need to create missing or renew expiring subscriptions
+    console.log('Creating or renewing subscriptions...', {
+      hasCreation: !!creationSub,
+      hasDeletion: !!deletionSub
+    });
+
+    // Deactivate any existing subscriptions before creating new ones
+    if (existingSubscriptions && existingSubscriptions.length > 0) {
+      await supabase
+        .from('webhook_subscriptions')
+        .update({ is_active: false })
+        .in('id', existingSubscriptions.map(s => s.id));
+      
+      console.log('Deactivated old subscriptions');
     }
 
     // Create new subscription
