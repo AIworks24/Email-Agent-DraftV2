@@ -438,11 +438,11 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
     let calendarAvailability = null;
     try {
       console.log('📅 ========================================');
-      console.log('📅 STARTING CALENDAR FETCH');
+      console.log('📅 STARTING CALENDAR FETCH 30 days');
       console.log('📅 ========================================');
       
       const startTime = new Date().toISOString();
-      const endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const endTime = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       
       console.log('📅 Query parameters:', {
         startTime: new Date(startTime).toLocaleString(),
@@ -648,9 +648,9 @@ async function generateAndCreateDraftReplyDelayed(
     // ✅ FIX: Fetch calendar data HERE too!
     let calendarAvailability = null;
     try {
-      console.log('📅 Fetching calendar for delayed processing...');
+      console.log('📅 Fetching calendar for delayed processing 30 days...');
       const startTime = new Date().toISOString();
-      const endTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const endTime = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       
       const calendarEvents = await graphService.getCalendarEvents(startTime, endTime);
       

@@ -153,14 +153,16 @@ export class GraphService {
     return emailBody;
   }
 
+
   /**
    * Clean HTML content while preserving formatting
+   * FIXED: Now properly preserves paragraph breaks and line formatting
    */
   private cleanHtmlContent(htmlContent: string, preserveFormatting: boolean = false): string {
     if (!htmlContent) return '';
     
     if (preserveFormatting) {
-      // ENHANCED: Better formatting preservation
+      // ENHANCED: Better formatting preservation for email threading
       let cleaned = htmlContent
         // Remove potentially dangerous elements
         .replace(/<script[^>]*>.*?<\/script>/gi, '')
@@ -186,16 +188,39 @@ export class GraphService {
         // Remove empty style attributes
         .replace(/\s*style\s*=\s*["']?\s*["']?/gi, '')
         
+        // Convert multiple line breaks to paragraph markers
+        .replace(/\r\n/g, '\n')  // Normalize line endings
+        .replace(/\n{3,}/g, '\n\n')  // Normalize multiple breaks to double
+        
         // PRESERVE: Keep paragraph and div structure
-        .replace(/\s*\n\s*/g, ' ') // Clean line breaks but keep structure
+        // Don't collapse line breaks - this was the bug!
+        // NEW (CORRECT): Keep line breaks but clean excess whitespace
+        .replace(/[ \t]+/g, ' ')  // Only collapse spaces/tabs, not newlines
+        .replace(/\n /g, '\n')     // Remove spaces after newlines
+        .replace(/ \n/g, '\n')     // Remove spaces before newlines
         
         // PRESERVE: Maintain email structure elements
         .replace(/<div([^>]*)>\s*<\/div>/gi, '<br>') // Empty divs become breaks
         .replace(/<p([^>]*)>\s*<\/p>/gi, '<br>')     // Empty paragraphs become breaks
         
         // ENHANCE: Better spacing for readability
-        .replace(/(<\/p>\s*<p[^>]*>)/gi, '</p><br><p>') // Add breaks between paragraphs
-        .replace(/(<\/div>\s*<div[^>]*>)/gi, '</div><br><div>'); // Add breaks between divs
+        .replace(/(<\/p>\s*<p[^>]*>)/gi, '</p>\n<p>') // Add breaks between paragraphs
+        .replace(/(<\/div>\s*<div[^>]*>)/gi, '</div>\n<div>'); // Add breaks between divs
+      
+      // ✅ NEW: Convert plain text line breaks to HTML if no HTML structure exists
+      if (!cleaned.includes('<p>') && !cleaned.includes('<div>') && !cleaned.includes('<br>')) {
+        // This is plain text - convert to proper HTML paragraphs
+        cleaned = cleaned
+          .split('\n\n')  // Split on paragraph breaks
+          .map(para => para.trim())
+          .filter(para => para.length > 0)
+          .map(para => {
+            // Handle single line breaks within paragraphs
+            const withBreaks = para.replace(/\n/g, '<br>');
+            return `<p>${withBreaks}</p>`;
+          })
+          .join('\n');
+      }
       
       return cleaned;
     } else {

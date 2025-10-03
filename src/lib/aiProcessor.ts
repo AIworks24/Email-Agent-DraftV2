@@ -1,4 +1,4 @@
-// src/lib/aiProcessor.ts - ENHANCED with stronger calendar emphasis
+// src/lib/aiProcessor.ts - UPDATED with 30-day calendar window
 export interface EmailContext {
   subject: string;
   fromEmail: string;
@@ -118,25 +118,18 @@ export class AIEmailProcessor {
       conversationText = `CONVERSATION HISTORY:\n${context.conversationHistory}\n\n`;
     }
 
-    // ✅ CRITICAL FIX: Parse calendar times correctly - they're already in Eastern Time
+    // ✅ UPDATED: Calendar text now mentions 30 days
     let calendarText = '';
     if (context.calendarAvailability && context.calendarAvailability.length > 0) {
       console.log('📅 Formatting calendar data for AI prompt...');
       
       const events = context.calendarAvailability.map((event, index) => {
-        // ✅ The datetime from Microsoft Graph is ALREADY in Eastern Time
-        // Format: '2025-10-02T12:00:00.0000000' means 12:00 PM Eastern
-        // We need to treat it as a local time string, not UTC
-        
         const startStr = event.start?.dateTime || event.start?.date;
         const endStr = event.end?.dateTime || event.end?.date;
         
-        // Parse as Eastern Time by appending timezone info
-        const start = new Date(startStr + 'Z'); // Temporarily parse as UTC
+        const start = new Date(startStr + 'Z');
         const end = new Date(endStr + 'Z');
         
-        // But the Graph API already gave us Eastern Time, so we need to display it directly
-        // Extract hour/minute from the ISO string directly
         const startParts = startStr.match(/T(\d{2}):(\d{2})/);
         const endParts = endStr.match(/T(\d{2}):(\d{2})/);
         
@@ -150,7 +143,6 @@ export class AIEmailProcessor {
         const endHour = parseInt(endParts[1]);
         const endMin = endParts[2];
         
-        // Format as 12-hour time
         const formatTime = (hour: number, min: string) => {
           const period = hour >= 12 ? 'PM' : 'AM';
           const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
@@ -160,7 +152,6 @@ export class AIEmailProcessor {
         const startTime = formatTime(startHour, startMin);
         const endTime = formatTime(endHour, endMin);
         
-        // Get day of week and date
         const dayOfWeek = start.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
         const date = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
         
@@ -175,7 +166,7 @@ export class AIEmailProcessor {
 🚨 CRITICAL CALENDAR INFORMATION - MUST FOLLOW 🚨
 ═══════════════════════════════════════════════════════════════
 
-MY CALENDAR FOR THE NEXT 7 DAYS (Eastern Time):
+MY CALENDAR FOR THE NEXT 30 DAYS (Eastern Time):
 
 ${events.join('\n')}
 
@@ -186,6 +177,7 @@ ${events.join('\n')}
 4. Only suggest times that do NOT conflict with the calendar above
 5. If uncertain, ask for their availability instead of suggesting times
 6. Always reference "checking my calendar" when discussing availability
+7. For dates beyond 30 days, acknowledge you cannot see that far ahead
 
 ═══════════════════════════════════════════════════════════════
 `;
@@ -195,7 +187,7 @@ ${events.join('\n')}
 📅 CALENDAR STATUS
 ═══════════════════════════════════════════════════════════════
 
-My calendar is currently open for the next 7 days - no conflicts found.
+My calendar is currently open for the next 30 days - no conflicts found.
 You may suggest meeting times freely, but still ask for their preferences.
 
 ═══════════════════════════════════════════════════════════════
@@ -210,7 +202,6 @@ You may suggest meeting times freely, but still ask for their preferences.
       }
     }
 
-    // ✅ Enhanced custom instructions section
     let customInstructionsText = '';
     if (context.clientTemplate.customInstructions && context.clientTemplate.customInstructions.trim()) {
       customInstructionsText = `
@@ -450,10 +441,9 @@ Return only valid JSON.`;
     return cleaned;
   }
 
-  // ✅ NEW: Helper method to format calendar events for better AI understanding
   formatCalendarForAI(events: any[]): string {
     if (!events || events.length === 0) {
-      return 'No calendar events in the next 7 days - schedule is currently open.';
+      return 'No calendar events in the next 30 days - schedule is currently open.';
     }
 
     const formattedEvents = events.map(event => {
