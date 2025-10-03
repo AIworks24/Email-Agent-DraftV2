@@ -1,12 +1,12 @@
-// CREATE NEW FILE: src/app/login/page.tsx
-// Simple password login page
+// FIXED: src/app/login/page.tsx
+// Wrapped in Suspense to fix Next.js build error
 
 'use client';
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function LoginPage() {
+function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -29,7 +29,6 @@ export default function LoginPage() {
       });
 
       if (response.ok) {
-        // Login successful, redirect to dashboard
         router.push(returnUrl);
         router.refresh();
       } else {
@@ -178,5 +177,36 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ✅ FIX: Wrap in Suspense boundary to prevent build error
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        fontFamily: 'system-ui, -apple-system, sans-serif'
+      }}>
+        <div style={{
+          backgroundColor: 'white',
+          padding: '48px',
+          borderRadius: '16px',
+          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+          width: '100%',
+          maxWidth: '400px',
+          textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🔒</div>
+          <p style={{ color: '#6b7280' }}>Loading...</p>
+        </div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }
