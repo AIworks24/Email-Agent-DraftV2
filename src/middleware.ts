@@ -1,5 +1,5 @@
-// CREATE NEW FILE: src/middleware.ts
-// Simple password protection that doesn't break OAuth flow
+// FIXED: src/middleware.ts
+// Added /api/auth/login to publicPaths
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -7,27 +7,27 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   
-  // ✅ CRITICAL: Allow OAuth callback URLs to pass through WITHOUT authentication
-  // This ensures Microsoft OAuth redirects work correctly
+  // ✅ CRITICAL: Allow these paths WITHOUT authentication
   const publicPaths = [
-    '/api/auth/signin',
-    '/api/auth/callback',
-    '/api/webhooks/email-received',
-    '/api/webhooks/email-deleted',
-    '/api/setup-webhook',
-    '/api/health',
-    '/login'  // Login page itself must be accessible
+    '/api/auth/signin',           // OAuth start
+    '/api/auth/callback',         // OAuth callback
+    '/api/auth/login',            // ← FIX: Login endpoint MUST be public!
+    '/api/webhooks/email-received', // Email webhook
+    '/api/webhooks/email-deleted',  // Delete webhook
+    '/api/setup-webhook',         // Webhook renewal
+    '/api/health',                // Health check
+    '/login'                      // Login page
   ];
   
-  // Check if this is a public API endpoint
+  // Check if this is a public path
   const isPublicPath = publicPaths.some(path => pathname.startsWith(path));
   
   if (isPublicPath) {
-    // Allow API endpoints to pass through
+    // Allow request to pass through without auth check
     return NextResponse.next();
   }
   
-  // For all other routes (dashboard, etc.), check authentication
+  // For all other routes, check authentication
   const authCookie = request.cookies.get('dashboard_auth');
   
   // Check if user is authenticated
@@ -39,7 +39,6 @@ export function middleware(request: NextRequest) {
   // User is NOT authenticated
   // If trying to access dashboard, redirect to login
   if (pathname === '/' || pathname.startsWith('/dashboard')) {
-    // Redirect to login page with return URL
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('returnUrl', pathname);
     return NextResponse.redirect(loginUrl);
@@ -55,13 +54,6 @@ export function middleware(request: NextRequest) {
 // Configure which paths this middleware runs on
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder files (svg, png, etc.)
-     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.svg$|.*\\.png$|.*\\.jpg$).*)',
   ],
 };
