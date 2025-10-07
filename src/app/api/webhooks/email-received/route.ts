@@ -424,8 +424,27 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
     }
 
     const normalizedSender = senderEmail.toLowerCase().trim();
-    const isFiltered = clientTemplate.emailFilters.some((filterEmail: string) => {
-      return filterEmail.toLowerCase().trim() === normalizedSender;
+    const isFiltered = clientTemplate.emailFilters.some((filterPattern: string) => {
+      const normalizedPattern = filterPattern.toLowerCase().trim();
+      
+      // Skip empty patterns
+      if (!normalizedPattern) return false;
+      
+      // Pattern matching logic:
+      // 1. If pattern starts with @, match domain (e.g., @upwork.com)
+      // 2. If pattern contains @, match exact email (e.g., spam@test.com)
+      // 3. Otherwise, match if pattern appears anywhere in email (e.g., "upwork")
+      
+      if (normalizedPattern.startsWith('@')) {
+        // Domain matching: @email.upwork.com matches any email ending with that domain
+        return normalizedSender.endsWith(normalizedPattern);
+      } else if (normalizedPattern.includes('@')) {
+        // Exact email matching: spam@test.com matches only that exact email
+        return normalizedSender === normalizedPattern;
+      } else {
+        // Substring matching: "upwork" matches any email containing "upwork"
+        return normalizedSender.includes(normalizedPattern);
+      }
     });
 
     if (isFiltered) {
@@ -632,11 +651,24 @@ async function generateAndCreateDraftReplyDelayed(
       return;
     }
 
-    // Check email filters
     const normalizedSender = senderEmail.toLowerCase().trim();
-    const isFiltered = clientTemplate.emailFilters.some((filterEmail: string) => {
-      const normalizedFilter = filterEmail.toLowerCase().trim();
-      return normalizedSender === normalizedFilter;
+    const isFiltered = clientTemplate.emailFilters.some((filterPattern: string) => {
+      const normalizedPattern = filterPattern.toLowerCase().trim();
+      
+      // Skip empty patterns
+      if (!normalizedPattern) return false;
+      
+      // Pattern matching logic (same as above)
+      if (normalizedPattern.startsWith('@')) {
+        // Domain matching
+        return normalizedSender.endsWith(normalizedPattern);
+      } else if (normalizedPattern.includes('@')) {
+        // Exact email matching
+        return normalizedSender === normalizedPattern;
+      } else {
+        // Substring matching
+        return normalizedSender.includes(normalizedPattern);
+      }
     });
 
     if (isFiltered) {
