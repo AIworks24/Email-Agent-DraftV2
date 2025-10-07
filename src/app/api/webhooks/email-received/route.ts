@@ -547,7 +547,7 @@ async function processEmailWithAI(messageId: string, emailAccount: any, emailLog
       emailDetails.id,
       aiResponse,
       clientTemplate.signature,
-      false
+      true
     );
 
     const { error: finalUpdateError } = await supabase!
@@ -683,7 +683,7 @@ async function generateAndCreateDraftReplyDelayed(
       emailDetails.id,
       aiResponse,
       clientTemplate.signature,
-      false
+      true
     );
 
     const { error: updateError } = await supabase!
