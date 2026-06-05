@@ -70,21 +70,65 @@ export async function refreshAccessToken(emailAccountId: string): Promise<string
 
     console.log('Token refresh successful, updating database...');
 
-    // Cast response to any to access refreshToken (it exists but not in types)
-    const responseAny = response as any;
 
-    // Update database with new tokens
-    const { error: updateError } = await supabase
-      .from('email_accounts')
-      .update({
-        access_token: response.accessToken,
-        // SAFE CHANGE: Encrypt new refresh token, decrypt old one for comparison
-        refresh_token: responseAny.refreshToken 
-          ? encryptToken(responseAny.refreshToken) 
-          : emailAccount.refresh_token,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', emailAccountId);
+const responseAny = response as any;
+
+// Extract rotated refresh token using multiple methods.
+// MSAL doesn't reliably surface it on response directly — cache is most reliable.
+let newRefreshToken: string | null = null;
+
+// Method 1: Direct property on response object
+if (responseAny.refreshToken) {
+  newRefreshToken = responseAny.refreshToken;
+  console.log('✅ Refresh token captured via Method 1 (direct)');
+}
+
+// Method 2: MSAL token cache — most reliable for acquireTokenByRefreshToken
+if (!newRefreshToken) {
+  try {
+    const cache = cca.getTokenCache();
+    const parsedCache = JSON.parse(cache.serialize());
+    if (parsedCache.RefreshToken) {
+      const refreshTokens = Object.values(parsedCache.RefreshToken) as any[];
+      if (refreshTokens.length > 0) {
+        newRefreshToken = refreshTokens[0].secret;
+        console.log('✅ Refresh token captured via Method 2 (MSAL cache)');
+      }
+    }
+  } catch (cacheError) {
+    console.log('⚠️ Could not read MSAL cache:', cacheError);
+  }
+}
+
+// Method 3: Alternative property names
+if (!newRefreshToken) {
+  const keys = ['refresh_token', 'RefreshToken', 'rt'];
+  for (const key of keys) {
+    if (responseAny[key]) {
+      newRefreshToken = responseAny[key];
+      console.log(`✅ Refresh token captured via Method 3 (${key})`);
+      break;
+    }
+  }
+}
+
+if (newRefreshToken) {
+  console.log('🔄 New refresh token obtained — 90-day clock reset');
+} else {
+  console.warn('⚠️ No new refresh token returned by Microsoft — keeping existing token');
+}
+
+// Update database with new tokens
+const { error: updateError } = await supabase
+  .from('email_accounts')
+  .update({
+    access_token: response.accessToken,
+    refresh_token: newRefreshToken
+      ? encryptToken(newRefreshToken)
+      : emailAccount.refresh_token,
+    updated_at: new Date().toISOString()
+  })
+  .eq('id', emailAccountId);
 
     if (updateError) {
       console.error('Failed to update tokens in database:', updateError);
