@@ -96,6 +96,9 @@ export async function refreshAccessToken(emailAccountId: string): Promise<string
         refresh_token: tokenData.refresh_token
           ? encryptToken(tokenData.refresh_token)
           : emailAccount.refresh_token,
+        consecutive_refresh_failures: 0,
+        last_refresh_error: null,
+        last_refresh_error_at: null,
         updated_at: new Date().toISOString()
       })
       .eq('id', emailAccountId);
@@ -110,22 +113,47 @@ export async function refreshAccessToken(emailAccountId: string): Promise<string
 
   } catch (error) {
     console.error('❌ Token refresh failed for account:', emailAccountId, error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+    // Get current failure count
+    const { data: currentAccount } = await supabase
+      .from('email_accounts')
+      .select('consecutive_refresh_failures')
+      .eq('id', emailAccountId)
+      .single();
+
+    const failureCount = (currentAccount?.consecutive_refresh_failures || 0) + 1;
     
-    // SAFETY IMPROVEMENT: only deactivate on confirmed invalid_grant, not any error containing that string
-    const isDefinitelyDead = error instanceof Error && 
-      (error.message.startsWith('invalid_grant:') || error.message.includes('AADSTS700082'));
+    const isDefinitelyDead = errorMessage.includes('AADSTS700082') || 
+                             errorMessage.includes('AADSTS70008') ||
+                             errorMessage.includes('AADSTS50173');
     
-    if (isDefinitelyDead) {
-      console.error('🚨 Refresh token confirmed dead — marking account inactive');
+    const shouldDeactivate = isDefinitelyDead || failureCount >= 5;
+
+    if (shouldDeactivate) {
+      console.error(`🚨 Deactivating account — reason: ${isDefinitelyDead ? 'confirmed expired' : `${failureCount} consecutive failures`}`);
       await supabase
         .from('email_accounts')
-        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .update({ 
+          is_active: false,
+          last_refresh_error: errorMessage.substring(0, 500),
+          last_refresh_error_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
         .eq('id', emailAccountId);
     } else {
-      console.warn('⚠️ Refresh failed but not with definitive invalid_grant — NOT deactivating account');
+      console.warn(`⚠️ Refresh failed (${failureCount}/5) — keeping account active, will retry next cycle`);
+      await supabase
+        .from('email_accounts')
+        .update({ 
+          consecutive_refresh_failures: failureCount,
+          last_refresh_error: errorMessage.substring(0, 500),
+          last_refresh_error_at: new Date().toISOString()
+        })
+        .eq('id', emailAccountId);
     }
     
-    throw new Error(`Token refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    throw new Error(`Token refresh failed: ${errorMessage}`);
   }
 }
 

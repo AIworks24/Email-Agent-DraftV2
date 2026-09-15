@@ -11,7 +11,7 @@ const supabase = createClient(
 export async function GET() {
   const { data: accounts } = await supabase
     .from('email_accounts')
-    .select('email_address, is_active, updated_at, refresh_token');
+    .select('email_address, is_active, updated_at, refresh_token, consecutive_refresh_failures, last_refresh_error, last_refresh_error_at');
 
   const now = Date.now();
   const status = (accounts || []).map(acc => {
@@ -19,8 +19,8 @@ export async function GET() {
     let health: 'healthy' | 'warning' | 'critical' | 'dead' = 'healthy';
     
     if (!acc.is_active) health = 'dead';
-    else if (ageMinutes > 120) health = 'critical';   // Cron should touch every 20 min
-    else if (ageMinutes > 60) health = 'warning';
+    else if (acc.consecutive_refresh_failures >= 3) health = 'critical';
+    else if (acc.consecutive_refresh_failures >= 1 || ageMinutes > 60) health = 'warning';
 
     return {
       email: acc.email_address,
@@ -28,6 +28,9 @@ export async function GET() {
       last_refresh: acc.updated_at,
       minutes_since_refresh: Math.round(ageMinutes),
       has_refresh_token: !!acc.refresh_token,
+      consecutive_failures: acc.consecutive_refresh_failures || 0,
+      last_error: acc.last_refresh_error,
+      last_error_at: acc.last_refresh_error_at,
       health
     };
   });
