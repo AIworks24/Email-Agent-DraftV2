@@ -111,11 +111,11 @@ export async function refreshAccessToken(emailAccountId: string): Promise<string
 
     return tokenData.access_token;
 
-  } catch (error) {
+      } catch (error) {
     console.error('❌ Token refresh failed for account:', emailAccountId, error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-    // Get current failure count
+    // Get current failure count for logging
     const { data: currentAccount } = await supabase
       .from('email_accounts')
       .select('consecutive_refresh_failures')
@@ -123,26 +123,28 @@ export async function refreshAccessToken(emailAccountId: string): Promise<string
       .single();
 
     const failureCount = (currentAccount?.consecutive_refresh_failures || 0) + 1;
-    
-    const isDefinitelyDead = errorMessage.includes('AADSTS700082') || 
-                             errorMessage.includes('AADSTS70008') ||
-                             errorMessage.includes('AADSTS50173');
-    
-    const shouldDeactivate = isDefinitelyDead || failureCount >= 5;
 
-    if (shouldDeactivate) {
-      console.error(`🚨 Deactivating account — reason: ${isDefinitelyDead ? 'confirmed expired' : `${failureCount} consecutive failures`}`);
+    // ONLY deactivate when Microsoft explicitly tells us the token is dead.
+    // Transient errors (network, timeouts, 500s, etc.) keep the account active and keep retrying.
+    const isConfirmedDeadByMicrosoft = 
+      errorMessage.includes('AADSTS700082') ||  // Inactivity expiry
+      errorMessage.includes('AADSTS70008') ||   // Expired refresh token
+      errorMessage.includes('AADSTS50173');     // Fresh auth required (password change, MFA change, etc.)
+
+    if (isConfirmedDeadByMicrosoft) {
+      console.error('🚨 Microsoft confirmed token is dead — deactivating account for re-authentication');
       await supabase
         .from('email_accounts')
         .update({ 
           is_active: false,
+          consecutive_refresh_failures: failureCount,
           last_refresh_error: errorMessage.substring(0, 500),
           last_refresh_error_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .eq('id', emailAccountId);
     } else {
-      console.warn(`⚠️ Refresh failed (${failureCount}/5) — keeping account active, will retry next cycle`);
+      console.warn(`⚠️ Refresh failed (attempt #${failureCount}) — transient error, keeping account active and will retry next cycle`);
       await supabase
         .from('email_accounts')
         .update({ 

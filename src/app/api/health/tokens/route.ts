@@ -19,8 +19,8 @@ export async function GET() {
     let health: 'healthy' | 'warning' | 'critical' | 'dead' = 'healthy';
     
     if (!acc.is_active) health = 'dead';
-    else if (acc.consecutive_refresh_failures >= 3) health = 'critical';
-    else if (acc.consecutive_refresh_failures >= 1 || ageMinutes > 60) health = 'warning';
+    else if (acc.consecutive_refresh_failures >= 10 || ageMinutes > 120) health = 'critical';
+    else if (acc.consecutive_refresh_failures >= 3 || ageMinutes > 60) health = 'warning';
 
     return {
       email: acc.email_address,
