@@ -25,9 +25,8 @@ async function getDecryptedRefreshToken(emailAccount: any): Promise<string> {
 
 export async function refreshAccessToken(emailAccountId: string): Promise<string> {
   try {
-    console.log('Starting token refresh for account:', emailAccountId);
+    console.log('🔄 Starting token refresh for account:', emailAccountId);
     
-    // Get current email account
     const { data: emailAccount, error } = await supabase
       .from('email_accounts')
       .select('*')
@@ -38,119 +37,92 @@ export async function refreshAccessToken(emailAccountId: string): Promise<string
       throw new Error('Email account not found');
     }
 
-    console.log('Email account found:', emailAccount.email_address);
+    console.log('📧 Email account:', emailAccount.email_address);
 
-    // Check if we have a refresh token
     if (!emailAccount.refresh_token) {
       throw new Error('No refresh token available - user needs to re-authenticate');
     }
 
-    const cca = new ConfidentialClientApplication(msalConfig);
+    const decryptedRefreshToken = decryptToken(emailAccount.refresh_token);
 
-    console.log('Attempting token refresh with MSAL...');
-
-    // Use refresh token to get new access token
-    const refreshTokenRequest = {
-      refreshToken: decryptToken(emailAccount.refresh_token), // SAFE: Decrypt for use
-      scopes: [
+    // DIRECT HTTP CALL — bypass MSAL entirely so we see exactly what Microsoft returns
+    console.log('🌐 Calling Microsoft token endpoint directly...');
+    
+    const params = new URLSearchParams({
+      client_id: process.env.MICROSOFT_CLIENT_ID!,
+      client_secret: process.env.MICROSOFT_CLIENT_SECRET!,
+      refresh_token: decryptedRefreshToken,
+      grant_type: 'refresh_token',
+      scope: [
         'https://graph.microsoft.com/Mail.Read',
-        'https://graph.microsoft.com/Mail.ReadWrite', 
+        'https://graph.microsoft.com/Mail.ReadWrite',
         'https://graph.microsoft.com/Mail.Send',
         'https://graph.microsoft.com/User.Read',
         'https://graph.microsoft.com/Calendars.Read',
         'offline_access'
-      ]
-    };
+      ].join(' ')
+    });
 
-    const response = await cca.acquireTokenByRefreshToken(refreshTokenRequest);
+    const tokenResponse = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    });
+
+    const tokenData = await tokenResponse.json();
+
+    if (!tokenResponse.ok) {
+      console.error('❌ Microsoft rejected token refresh:', tokenData);
+      const errorMsg = tokenData.error_description || tokenData.error || 'Unknown error';
+      throw new Error(`${tokenData.error || 'refresh_failed'}: ${errorMsg}`);
+    }
+
+    // Explicit visibility into what Microsoft returned
+    console.log('📊 Microsoft response fields:', Object.keys(tokenData));
+    console.log('🔑 New access_token received:', !!tokenData.access_token);
+    console.log('🔄 New refresh_token received:', !!tokenData.refresh_token);
     
-    if (!response || !response.accessToken) {
-      throw new Error('Failed to refresh token - no access token received');
+    if (tokenData.refresh_token) {
+      const rotated = tokenData.refresh_token.substring(0, 30) !== decryptedRefreshToken.substring(0, 30);
+      console.log(`🔄 Refresh token rotated: ${rotated ? 'YES ✅ (90-day clock reset)' : 'NO — Microsoft returned the same token'}`);
+    } else {
+      console.error('⚠️ CRITICAL: Microsoft did NOT return a refresh_token field. 90-day clock NOT reset for this account!');
     }
 
-    console.log('Token refresh successful, updating database...');
-
-
-const responseAny = response as any;
-
-// Extract rotated refresh token using multiple methods.
-// MSAL doesn't reliably surface it on response directly — cache is most reliable.
-let newRefreshToken: string | null = null;
-
-// Method 1: Direct property on response object
-if (responseAny.refreshToken) {
-  newRefreshToken = responseAny.refreshToken;
-  console.log('✅ Refresh token captured via Method 1 (direct)');
-}
-
-// Method 2: MSAL token cache — most reliable for acquireTokenByRefreshToken
-if (!newRefreshToken) {
-  try {
-    const cache = cca.getTokenCache();
-    const parsedCache = JSON.parse(cache.serialize());
-    if (parsedCache.RefreshToken) {
-      const refreshTokens = Object.values(parsedCache.RefreshToken) as any[];
-      if (refreshTokens.length > 0) {
-        newRefreshToken = refreshTokens[0].secret;
-        console.log('✅ Refresh token captured via Method 2 (MSAL cache)');
-      }
-    }
-  } catch (cacheError) {
-    console.log('⚠️ Could not read MSAL cache:', cacheError);
-  }
-}
-
-// Method 3: Alternative property names
-if (!newRefreshToken) {
-  const keys = ['refresh_token', 'RefreshToken', 'rt'];
-  for (const key of keys) {
-    if (responseAny[key]) {
-      newRefreshToken = responseAny[key];
-      console.log(`✅ Refresh token captured via Method 3 (${key})`);
-      break;
-    }
-  }
-}
-
-if (newRefreshToken) {
-  console.log('🔄 New refresh token obtained — 90-day clock reset');
-} else {
-  console.warn('⚠️ No new refresh token returned by Microsoft — keeping existing token');
-}
-
-// Update database with new tokens
-const { error: updateError } = await supabase
-  .from('email_accounts')
-  .update({
-    access_token: response.accessToken,
-    refresh_token: newRefreshToken
-      ? encryptToken(newRefreshToken)
-      : emailAccount.refresh_token,
-    updated_at: new Date().toISOString()
-  })
-  .eq('id', emailAccountId);
+    const { error: updateError } = await supabase
+      .from('email_accounts')
+      .update({
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token
+          ? encryptToken(tokenData.refresh_token)
+          : emailAccount.refresh_token,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', emailAccountId);
 
     if (updateError) {
-      console.error('Failed to update tokens in database:', updateError);
-      // Don't throw - we still have the new token to return
+      console.error('❌ Database update failed:', updateError);
     } else {
-      console.log('Database updated successfully with new tokens');
+      console.log('✅ Database updated with new tokens');
     }
 
-    return response.accessToken;
+    return tokenData.access_token;
 
   } catch (error) {
-    console.error('Token refresh failed for account:', emailAccountId, error);
+    console.error('❌ Token refresh failed for account:', emailAccountId, error);
     
-    // If refresh token is invalid, mark account as needing re-auth
-    if (error instanceof Error && error.message.includes('invalid_grant')) {
+    // SAFETY IMPROVEMENT: only deactivate on confirmed invalid_grant, not any error containing that string
+    const isDefinitelyDead = error instanceof Error && 
+      (error.message.startsWith('invalid_grant:') || error.message.includes('AADSTS700082'));
+    
+    if (isDefinitelyDead) {
+      console.error('🚨 Refresh token confirmed dead — marking account inactive');
       await supabase
         .from('email_accounts')
-        .update({ 
-          is_active: false,
-          updated_at: new Date().toISOString()
-        })
+        .update({ is_active: false, updated_at: new Date().toISOString() })
         .eq('id', emailAccountId);
+    } else {
+      console.warn('⚠️ Refresh failed but not with definitive invalid_grant — NOT deactivating account');
     }
     
     throw new Error(`Token refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
